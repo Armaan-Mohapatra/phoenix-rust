@@ -1,0 +1,21 @@
+name: Phoenix source-derived BTC 15m historical replay
+on:
+  push:
+    branches: [codex/real-btc-historical-replay-v1]
+    paths: ['integrations/real-btc-replay/**','.github/workflows/real-btc-replay.yml']
+  pull_request:
+    paths: ['integrations/real-btc-replay/**','.github/workflows/real-btc-replay.yml']
+permissions:
+  contents: read
+jobs:
+  real-btc-projected:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replay REAL archived one-market reference and book projections, paper-only
+        run: cargo test --manifest-path integrations/real-btc-replay/Cargo.toml --verbose

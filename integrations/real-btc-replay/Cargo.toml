@@ -1,0 +1,11 @@
+[package]
+name = "phoenix-real-btc-replay"
+version = "0.1.0"
+publish = false
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+phoenix-domain = { path = "../../crates/domain" }
+phoenix-sim = { path = "../../crates/sim" }
