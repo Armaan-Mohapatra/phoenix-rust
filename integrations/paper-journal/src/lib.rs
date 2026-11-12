@@ -155,7 +155,7 @@ impl Journal {
                 row.feed!=FEED||row.session!=SESSION||row.kind!=50 {
                 return Err(issue("wrong feed, session or kind"));
             }
-            let e:Event=serde_json::from_slice(&row.payload).map_err(|_|issue("invalid serialized paper event"))?;
+            let e:Event=serde_json::from_slice(&row.payload).map_err(|err|issue(&format!("invalid serialized paper event: {err}")))?;
             if e.portfolio()!=row.market||e.at_ns()!=row.received_ns||
                 row.exchange_ns!=row.received_ns||e.seq()!=row.sequence||
                 id.id!=format!("{}:{}",e.portfolio(),e.seq()){
