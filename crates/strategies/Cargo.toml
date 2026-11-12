@@ -1,0 +1,10 @@
+[package]
+name="phoenix-strategies"
+version="0.1.0"
+publish=false
+edition.workspace=true
+rust-version.workspace=true
+
+[dependencies]
+phoenix-domain={ path="../domain" }
+phoenix-research={ path="../research" }
