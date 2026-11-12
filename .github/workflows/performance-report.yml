@@ -1,0 +1,20 @@
+name: Rust research performance report tests
+on:
+  push:
+    branches: [codex/performance-report-v1]
+    paths: ['integrations/performance-report/**','.github/workflows/performance-report.yml']
+  pull_request:
+    paths: ['integrations/performance-report/**','.github/workflows/performance-report.yml']
+permissions:
+  contents: read
+jobs:
+  report:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --manifest-path integrations/performance-report/Cargo.toml
