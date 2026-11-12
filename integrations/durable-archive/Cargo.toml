@@ -1,0 +1,17 @@
+[package]
+name = "phoenix-durable-archive"
+version = "0.1.0"
+publish = false
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+phoenix-parquet-batch = { path = "../parquet-batch" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+fs2 = "0.4"
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,27 @@
+name: Rust durable archive tests
+on:
+  push:
+    branches: [codex/durable-archive-v1]
+    paths:
+      - 'integrations/durable-archive/**'
+      - '.github/workflows/durable-archive.yml'
+  pull_request:
+    paths:
+      - 'integrations/durable-archive/**'
+      - '.github/workflows/durable-archive.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate crash-recovery research fixture (no production data)
+        run: cargo test --manifest-path integrations/durable-archive/Cargo.toml
