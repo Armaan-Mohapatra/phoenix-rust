@@ -6,6 +6,18 @@ use serde::{Deserialize,Serialize};
 use std::collections::{BTreeMap,HashMap,HashSet};
 use std::path::Path;
 pub type Money=i128;
+
+mod money_as_string {
+    use serde::{Deserialize,Deserializer,Serializer};
+    pub fn serialize<S:Serializer>(v:&i128,s:S)->Result<S::Ok,S::Error>{
+        s.serialize_str(&v.to_string())
+    }
+    pub fn deserialize<'de,D:Deserializer<'de>>(d:D)->Result<i128,D::Error>{
+        let v=String::deserialize(d)?;
+        v.parse::<i128>().map_err(serde::de::Error::custom)
+    }
+}
+
 const ONE_DOLLAR:Money=10_000;
 const FEED:&str="paper_sim";
 const SESSION:&str="offline-paper";
@@ -16,9 +28,9 @@ pub enum Side {Yes,No}
 #[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(tag="type",rename_all="snake_case")]
 pub enum Event {
-    Open {portfolio:String,seq:u64,at_ns:i64,starting_cash:Money},
+    Open {portfolio:String,seq:u64,at_ns:i64,#[serde(with="money_as_string")]starting_cash:Money},
     Buy {portfolio:String,seq:u64,at_ns:i64,order_id:String,market:String,
-        rules_sha256:String,side:Side,price_ticks:u16,quantity:u64,fee:Money},
+        rules_sha256:String,side:Side,price_ticks:u16,quantity:u64,#[serde(with="money_as_string")]fee:Money},
     Settle {portfolio:String,seq:u64,at_ns:i64,order_id:String,market:String,
         rules_sha256:String,winner:Side,official_sha256:String},
     Invalidate {portfolio:String,seq:u64,at_ns:i64,order_id:String,reason:String},
@@ -263,5 +275,19 @@ mod tests{
         assert_eq!(j.append(open("A",20_000)),Err(Error::DuplicatePortfolio));
         j.append(buy("A","x")).unwrap();
         assert_eq!(j.append(buy("A","x")),Err(Error::BadSequence));
+    }
+}
+
+#[cfg(test)]
+mod monetary_wire_tests{
+    use super::*;
+    #[test]
+    fn journal_persists_exact_i128_decimal_strings(){
+        let event=Event::Open{portfolio:"P1".into(),seq:0,at_ns:1,
+            starting_cash:i128::from(i64::MAX)+1000};
+        let encoded=serde_json::to_vec(&event).unwrap();
+        assert!(String::from_utf8_lossy(&encoded).contains("\"starting_cash\":\""));
+        let decoded:Event=serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded,event);
     }
 }
