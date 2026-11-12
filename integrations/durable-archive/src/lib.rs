@@ -407,3 +407,55 @@ mod tests {
         assert_eq!(b.committed_partitions(),0);
     }
 }
+
+
+impl Archive {
+    /// Read only previously sealed and checksum-verified rows. The callback
+    /// receives one row at a time; partitions remain strictly bounded.
+    pub fn visit_verified_rows<F>(&self,mut callback:F)->Result<(),Error>
+    where F:FnMut(&SealedPartition,&EventIdentity,&Row)->Result<(),Error>{
+        for manifest in self.manifests.values(){
+            let bytes=safe_read(
+                &data_path(&self.root,&manifest.partition_id),MAX_PARTITION_BYTES)?;
+            if hash(&bytes)!=manifest.parquet_sha256{
+                return Err(Error::DigestMismatch(manifest.partition_id.clone()));
+            }
+            let meta=ParquetManifest{
+                rows:manifest.rows,sha256:manifest.parquet_sha256.clone(),
+                received_min_ns:manifest.received_min_ns,
+                received_max_ns:manifest.received_max_ns,format:"parquet_zstd_v1",
+            };
+            let decoded=phoenix_parquet_batch::decode_finalized(&bytes,&meta)
+                .map_err(|e|Error::Parquet(format!("{e:?}")))?;
+            if decoded.len()!=manifest.events.len(){return Err(Error::InvalidManifest);}
+            for (identity,row) in manifest.events.iter().zip(decoded.iter()){
+                if identity.row_sha256!=sha_row(row){
+                    return Err(Error::DigestMismatch(identity.id.clone()));
+                }
+                callback(manifest,identity,row)?;
+            }
+        }
+        Ok(())
+    }
+}
+#[cfg(test)]
+mod archived_row_tests{
+    use super::*;
+    use tempfile::TempDir;
+    #[test]fn replays_committed_rows_in_digest_checked_order(){
+        let t=TempDir::new().unwrap();let root=t.path().join("research");
+        let mut a=Archive::open(&root).unwrap();
+        let s=SourceScope{feed:"paper".into(),session:"s".into(),market:"P1".into(),
+            observed_sequence_gaps:0,quality_flags:vec![],
+            source_manifest_sha256:None};
+        let payload=Row{feed:"paper".into(),session:"s".into(),market:"P1".into(),
+            exchange_ns:10,received_ns:11,sequence:1,kind:50,payload:vec![0,22,250]};
+        a.publish(s,&[EventRow{event_id:"P1:1".into(),data:payload}]).unwrap();
+        let mut seen=Vec::new();
+        a.visit_verified_rows(|manifest,id,row|{
+            assert_eq!(manifest.rows,1);
+            seen.push((id.id.clone(),row.sequence,row.payload.clone()));Ok(())
+        }).unwrap();
+        assert_eq!(seen,vec![("P1:1".into(),1,vec![0,22,250])]);
+    }
+}
