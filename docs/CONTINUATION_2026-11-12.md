@@ -39,7 +39,7 @@ All links: https://github.com/Armaan-Mohapatra/phoenix-rust/pulls
 
 6. **Performance summary** ([PR #13](https://github.com/Armaan-Mohapatra/phoenix-rust/pull/13)): deterministic split-level modeled metrics, nullable pending net, negative results retained, drawdown and separate asserted evidence tiers, JSON. Latest **f040176109b86bdddcfd673435bfdd749f7b33bb**, Ubuntu+Windows passed [CI #43276197126](https://github.com/Armaan-Mohapatra/phoenix-rust/actions/runs/43276197126). No operational publisher.
 
-7. **Independent-proof fail-close change** ([PR #15](https://github.com/Armaan-Mohapatra/phoenix-rust/pull/15)): removes automatic promotion from venue-final to independently verified merely based on differing source names and hashes. **d8dc6d41091bb8a6931b07f85537a4d267f67803**, CI status must be checked separately; does not implement independent primary-source authentication.
+7. **Independent-proof fail-close change** ([PR #15](https://github.com/Armaan-Mohapatra/phoenix-rust/pull/15)): removes automatic promotion from venue-final to independently verified merely based on differing source names and hashes. **d8dc6d41091bb8a6931b07f85537a4d267f67803**, Ubuntu+Windows passed [CI #43276937527](https://github.com/Armaan-Mohapatra/phoenix-rust/actions/runs/43276937527); does not implement independent primary-source authentication.
 
 ## Exact continuation order
 
