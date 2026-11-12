@@ -6,6 +6,8 @@ An **offline-first, Rust-only prediction-market research and execution-simulatio
 
 **Development freeze checkpoint:** [2026-11-12 source-backed snapshot](docs/CHECKPOINT_2026-11-12.md). This is documentation, not an implemented release.
 
+**Latest post-checkpoint development:** [mission continuation, PR links and verified limitations](docs/CONTINUATION_2026-11-12.md). New experimental crates are on separate stacked draft PRs; no merge or production deployment.
+
 ## Implemented
 
 | Crate | Capability |
