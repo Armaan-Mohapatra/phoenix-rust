@@ -1,0 +1,25 @@
+name: Optional pinned HftBacktest backtest-only compatibility
+on:
+  push:
+    branches: [codex/integrated-upstream-adoption-v1]
+    paths: ['integrations/hftbacktest-adapter/**','.github/workflows/hftbacktest-adapter.yml']
+  pull_request:
+    paths: ['integrations/hftbacktest-adapter/**','.github/workflows/hftbacktest-adapter.yml']
+permissions:
+  contents: read
+jobs:
+  optional-backtest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust stable toolchain (upstream MSRV 1.91.1)
+        run: rustup update stable
+      - name: Confirm pinned commit and backtest-only feature
+        run: cargo tree --manifest-path integrations/hftbacktest-adapter/Cargo.toml --features upstream-hft -e features
+      - name: Cross-check actual upstream queue model with conservative Phoenix
+        run: cargo test --manifest-path integrations/hftbacktest-adapter/Cargo.toml --features upstream-hft
