@@ -2,11 +2,9 @@ name: Combined Rust integration matrix
 on:
   push:
     branches: [codex/integrated-upstream-adoption-v1]
+    paths: ['crates/**', 'integrations/**', '.github/workflows/combined-integration.yml']
   pull_request:
-    paths:
-      - 'crates/**'
-      - 'integrations/**'
-      - '.github/workflows/combined-integration.yml'
+    paths: ['crates/**', 'integrations/**', '.github/workflows/combined-integration.yml']
 permissions:
   contents: read
 jobs:
@@ -16,24 +14,30 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Use stable Rust for upstream MSRV 1.91.1
+      - name: Use stable Rust for hftbacktest MSRV
         run: rustup update stable
-      - name: Core source and sibling merge regression
+      - name: Workspace sources and settlement evidence guard
         run: cargo test --workspace --all-targets --offline
-      - name: Read-only WSS codec
+      - name: Read-only Kalshi WSS codec
         run: cargo test --manifest-path integrations/kalshi-wire/Cargo.toml
-      - name: Bounded archive crash recovery
+      - name: Durable archive and crash recovery
         run: cargo test --manifest-path integrations/durable-archive/Cargo.toml
       - name: Historical schema adapter
         run: cargo test --manifest-path integrations/historical-input/Cargo.toml
-      - name: Synthetic vertical trading replay
+      - name: Synthetic vertical execution and settlement replay
         run: cargo test --manifest-path integrations/vertical-fixture/Cargo.toml
-      - name: Persistent multi-portfolio paper journal
+      - name: Recoverable paper journal
         run: cargo test --manifest-path integrations/paper-journal/Cargo.toml
-      - name: Performance reporting sibling
+      - name: Modeled research performance reporting
         run: cargo test --manifest-path integrations/performance-report/Cargo.toml
-      - name: Direct upstream HFT queue-parity contract
+      - name: Direct linked upstream HftBacktest parity
         run: cargo test --manifest-path integrations/hftbacktest-adapter/Cargo.toml --features upstream-hft
+      - name: Oracle3 and Ryan source-level Rust mathematical ports
+        run: cargo test --manifest-path integrations/source-ports/Cargo.toml
+      - name: Tarpboi-inspired fixed-point risk guard
+        run: cargo test --manifest-path integrations/risk-guard/Cargo.toml
+      - name: Real archived Phoenix paper-ledger parity
+        run: cargo test --manifest-path integrations/real-ledger-parity/Cargo.toml
