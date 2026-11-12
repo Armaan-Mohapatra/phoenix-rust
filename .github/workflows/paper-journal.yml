@@ -1,0 +1,28 @@
+name: Rust persistent paper journal tests
+on:
+  push:
+    branches: [codex/paper-journal-v1]
+    paths:
+      - 'integrations/paper-journal/**'
+      - 'integrations/durable-archive/**'
+      - 'integrations/parquet-batch/**'
+      - '.github/workflows/paper-journal.yml'
+  pull_request:
+    paths:
+      - 'integrations/paper-journal/**'
+      - 'integrations/durable-archive/**'
+      - 'integrations/parquet-batch/**'
+      - '.github/workflows/paper-journal.yml'
+permissions:
+  contents: read
+jobs:
+  replay:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --manifest-path integrations/paper-journal/Cargo.toml

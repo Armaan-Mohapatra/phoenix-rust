@@ -115,3 +115,66 @@ mod tests {
         assert!(matches!(encode_finalized(&r),Err(Error::InvalidInput)));
     }
 }
+
+
+/// Decode a bounded, verified partition back into canonical input rows.
+/// This API is for research replay/recovery, never active production SQLite.
+pub fn decode_finalized(data:&[u8],manifest:&Manifest)->Result<Vec<Row>,Error>{
+    use arrow_array::Array;
+    verify_finalized(data,manifest)?;
+    let reader=ParquetRecordBatchReaderBuilder::try_new(Bytes::copy_from_slice(data))
+        .map_err(|e|Error::StringError(e.to_string()))?
+        .with_batch_size(256).build()
+        .map_err(|e|Error::StringError(e.to_string()))?;
+    let expected=schema();
+    let mut output=Vec::with_capacity(manifest.rows);
+    for batch in reader{
+        let batch=batch.map_err(|e|Error::StringError(e.to_string()))?;
+        if batch.schema().as_ref()!=expected.as_ref() || batch.num_columns()!=8{
+            return Err(Error::InvalidInput);
+        }
+        let string=|i:usize|batch.column(i).as_any()
+            .downcast_ref::<StringArray>().ok_or(Error::InvalidInput);
+        let feed=string(0)?;let session=string(1)?;let market=string(2)?;
+        let exchange=batch.column(3).as_any()
+            .downcast_ref::<Int64Array>().ok_or(Error::InvalidInput)?;
+        let received=batch.column(4).as_any()
+            .downcast_ref::<Int64Array>().ok_or(Error::InvalidInput)?;
+        let seq=batch.column(5).as_any()
+            .downcast_ref::<UInt64Array>().ok_or(Error::InvalidInput)?;
+        let kind=batch.column(6).as_any()
+            .downcast_ref::<UInt8Array>().ok_or(Error::InvalidInput)?;
+        let payload=batch.column(7).as_any()
+            .downcast_ref::<BinaryArray>().ok_or(Error::InvalidInput)?;
+        for r in 0..batch.num_rows(){
+            if output.len()>=MAX_ROWS ||
+                (0..8).any(|i|batch.column(i).is_null(r)){
+                return Err(Error::InvalidInput);
+            }
+            output.push(Row {
+                feed:feed.value(r).into(),session:session.value(r).into(),
+                market:market.value(r).into(),
+                exchange_ns:exchange.value(r),received_ns:received.value(r),
+                sequence:seq.value(r),kind:kind.value(r),payload:payload.value(r).to_vec(),
+            });
+        }
+    }
+    if output.len()!=manifest.rows{return Err(Error::CountMismatch);}
+    Ok(output)
+}
+#[cfg(test)]
+mod readback_tests {
+    use super::*;
+    #[test]
+    fn decoded_values_preserve_types_and_bytes(){
+        let source=vec![Row{feed:"paper".into(),session:"offline".into(),
+            market:"P1".into(),exchange_ns:3,received_ns:4,sequence:1,
+            kind:50,payload:vec![0,255,11]}];
+        let (bytes,manifest)=encode_finalized(&source).unwrap();
+        let restored=decode_finalized(&bytes,&manifest).unwrap();
+        assert_eq!(restored.len(),1);
+        assert_eq!(restored[0].payload,source[0].payload);
+        assert_eq!(restored[0].received_ns,4);
+        assert_eq!(restored[0].kind,50);
+    }
+}
