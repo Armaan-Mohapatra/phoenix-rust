@@ -1,0 +1,22 @@
+[package]
+name = "phoenix-vertical-fixture"
+version = "0.1.0"
+publish = false
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+phoenix-domain = { path = "../../crates/domain" }
+phoenix-l2 = { path = "../../crates/l2" }
+phoenix-kalshi-wire = { path = "../kalshi-wire" }
+phoenix-parquet-batch = { path = "../parquet-batch" }
+phoenix-durable-archive = { path = "../durable-archive" }
+phoenix-pipeline = { path = "../../crates/pipeline" }
+phoenix-research = { path = "../../crates/research" }
+phoenix-settlement = { path = "../../crates/settlement" }
+phoenix-strategies = { path = "../../crates/strategies" }
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
