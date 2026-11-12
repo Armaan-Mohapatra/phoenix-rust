@@ -1,0 +1,39 @@
+name: Combined Rust integration matrix
+on:
+  push:
+    branches: [codex/integrated-upstream-adoption-v1]
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'integrations/**'
+      - '.github/workflows/combined-integration.yml'
+permissions:
+  contents: read
+jobs:
+  combined:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use stable Rust for upstream MSRV 1.91.1
+        run: rustup update stable
+      - name: Core source and sibling merge regression
+        run: cargo test --workspace --all-targets --offline
+      - name: Read-only WSS codec
+        run: cargo test --manifest-path integrations/kalshi-wire/Cargo.toml
+      - name: Bounded archive crash recovery
+        run: cargo test --manifest-path integrations/durable-archive/Cargo.toml
+      - name: Historical schema adapter
+        run: cargo test --manifest-path integrations/historical-input/Cargo.toml
+      - name: Synthetic vertical trading replay
+        run: cargo test --manifest-path integrations/vertical-fixture/Cargo.toml
+      - name: Persistent multi-portfolio paper journal
+        run: cargo test --manifest-path integrations/paper-journal/Cargo.toml
+      - name: Performance reporting sibling
+        run: cargo test --manifest-path integrations/performance-report/Cargo.toml
+      - name: Direct upstream HFT queue-parity contract
+        run: cargo test --manifest-path integrations/hftbacktest-adapter/Cargo.toml --features upstream-hft
