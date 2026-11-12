@@ -1,0 +1,22 @@
+name: Rust offline tests
+on:
+  push:
+    branches: [codex/rust-foundation-v1]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustc --version && cargo --version
+      - run: cargo build --workspace --all-targets --offline
+      - run: cargo test --workspace --all-targets --offline
+      - run: cargo run -p phoenix-cli --offline
+      - run: cargo tree --workspace --offline

@@ -1,0 +1,19 @@
+name: Optional read-only HTTP adapter tests
+on:
+  push:
+    branches: [codex/rust-foundation-v1]
+    paths: ['integrations/kalshi-read-only/**', '.github/workflows/kalshi-http.yml']
+  pull_request:
+    paths: ['integrations/kalshi-read-only/**', '.github/workflows/kalshi-http.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and test URL/validation code only (NO API calls)
+        run: cargo test --manifest-path integrations/kalshi-read-only/Cargo.toml

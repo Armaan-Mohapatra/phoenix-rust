@@ -1,0 +1,12 @@
+[package]
+name="phoenix-pipeline"
+version="0.1.0"
+publish=false
+edition.workspace=true
+rust-version.workspace=true
+
+[dependencies]
+phoenix-domain={path="../domain"}
+phoenix-sim={path="../sim"}
+phoenix-research={path="../research"}
+phoenix-strategies={path="../strategies"}
