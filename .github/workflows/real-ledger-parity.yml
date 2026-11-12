@@ -1,0 +1,19 @@
+name: Minimal REAL Phoenix archived paper ledger arithmetic
+on:
+  push:
+    branches: [codex/integrated-upstream-adoption-v1]
+    paths: ['integrations/real-ledger-parity/**','.github/workflows/real-ledger-parity.yml']
+  pull_request:
+    paths: ['integrations/real-ledger-parity/**','.github/workflows/real-ledger-parity.yml']
+permissions:
+  contents: read
+jobs:
+  arithmetic:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --manifest-path integrations/real-ledger-parity/Cargo.toml
