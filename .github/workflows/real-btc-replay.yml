@@ -2,9 +2,9 @@ name: Phoenix source-derived BTC 15m historical replay
 on:
   push:
     branches: [codex/real-btc-historical-replay-v1]
-    paths: ['integrations/real-btc-replay/**','.github/workflows/real-btc-replay.yml']
+    paths: ['integrations/real-btc-replay/**','integrations/kalshi-wire/**','.github/workflows/real-btc-replay.yml']
   pull_request:
-    paths: ['integrations/real-btc-replay/**','.github/workflows/real-btc-replay.yml']
+    paths: ['integrations/real-btc-replay/**','integrations/kalshi-wire/**','.github/workflows/real-btc-replay.yml']
 permissions:
   contents: read
 jobs:
@@ -19,3 +19,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Replay REAL archived one-market reference and book projections, paper-only
         run: cargo test --manifest-path integrations/real-btc-replay/Cargo.toml --verbose
+      - name: Decode actual archived Kalshi deltas and trades, preserving skew provenance
+        run: cargo test --manifest-path integrations/kalshi-wire/Cargo.toml --verbose
