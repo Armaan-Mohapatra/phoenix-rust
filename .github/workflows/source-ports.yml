@@ -1,0 +1,19 @@
+name: Source-level Apache and MIT math port tests
+on:
+  push:
+    branches: [codex/integrated-upstream-adoption-v1]
+    paths: ['integrations/source-ports/**','.github/workflows/source-ports.yml']
+  pull_request:
+    paths: ['integrations/source-ports/**','.github/workflows/source-ports.yml']
+permissions:
+  contents: read
+jobs:
+  source-ports:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --manifest-path integrations/source-ports/Cargo.toml
