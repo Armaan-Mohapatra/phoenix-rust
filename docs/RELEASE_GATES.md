@@ -1,5 +1,7 @@
 # Phoenix Rust release gates
 
+See [2026-11-12 development freeze](CHECKPOINT_2026-11-12.md) for code SHA and test evidence.
+
 A successful synthetic CI test proves software invariants on fixtures, not system readiness.
 
 | Gate | Proof required | Current |
@@ -7,7 +9,7 @@ A successful synthetic CI test proves software invariants on fixtures, not syste
 | G0 — Workspace | Rust compile/tests on Windows and Linux; static dependency review | TESTED |
 | G1 — Binary economics | Fixed-point fee rounding; complementary books; incomplete/invalid states rejected | TESTED on synthetic |
 | G2 — L2 stream | Snapshot/delta replay; subscription sequence gaps; conflated clock handling; fractional quantities identified | SYNTHETIC TESTS ONLY |
-| G3 — Archive durability | Complete append-only snapshot/Parquet writer with SHA256 manifest, fsync/checkpoint recovery and sealed-only readers | NOT DONE (CRC frame proof of concept only) |
+| G3 — Archive durability | Complete append-only snapshot/Parquet writer with SHA256 manifest, fsync/checkpoint recovery and sealed-only readers | NOT DONE (CRC frame + **in-memory ZSTD Parquet/SHA256 batch** tested; no durable sealing or crash recovery) |
 | G4 — Actual settlement | Exact contract rules and independently sourced reference data; market IDs match evaluated trades | NOT DONE |
 | G5 — Historical replay | Full chronological market streams, measured latency, queue-aware fills, conservative missing-data behavior | NOT DONE (snapshot/tape models only) |
 | G6 — Strategies | Frozen code/config SHA, fully reproducible baseline and controls, no lookahead and untouched OOS | PARTIAL (interface only) |

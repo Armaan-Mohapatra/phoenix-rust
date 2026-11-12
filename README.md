@@ -4,6 +4,8 @@ An **offline-first, Rust-only prediction-market research and execution-simulatio
 
 **Status:** development prototype. Synthetic tests passing on Linux and Windows do **not** establish a profitable strategy or a production-ready data collector.
 
+**Development freeze checkpoint:** [2026-11-12 source-backed snapshot](docs/CHECKPOINT_2026-11-12.md). This is documentation, not an implemented release.
+
 ## Implemented
 
 | Crate | Capability |
@@ -18,7 +20,7 @@ An **offline-first, Rust-only prediction-market research and execution-simulatio
 | phoenix-pipeline | Integrates input integrity, strategy choice, simulated execution, settlement and report states |
 | phoenix-cli | Small **synthetic** trade-to-payout smoke demonstration |
 
-Separate optional integration: integrations/kalshi-read-only (Rust, public HTTP GET only; no order methods, no credentials). No network is used by its unit tests.
+Two isolated optional integrations: `integrations/kalshi-read-only` (public HTTP GET only; no order methods, no credentials) and `integrations/parquet-batch` (bounded in-memory Arrow/ZSTD Parquet batch, SHA256/count verification; **not a durable archive publisher**). Tests are synthetic; the HTTP adapter never calls Kalshi from unit tests.
 
 ## Test
 

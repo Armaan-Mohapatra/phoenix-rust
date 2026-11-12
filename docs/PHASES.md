@@ -2,11 +2,14 @@
 
 Original offline-first Rust toolkit. No network access, collectors, services, credentials, or exchange orders. Tests and demo use synthetic-only data.
 
+**Checkpoint:** [2026-11-12 status, code SHA, gates, estimates](CHECKPOINT_2026-11-12.md). Phase names below describe prototypes, not production-complete systems.
+
 Implemented in development branch:
 - Phase 0: workspace and Linux/Windows CI.
 - Phase 1: fixed-point book and fee arithmetic, as-of causality, sequence gates and evidence-tiered settlement.
 - Phase 2: depth-limited taker replay and conservative maker model with an explicit complete-tape precondition.
 - Phase 3: fee-aware strategy/no-trade decision, inversion variant, split embargo, event summary, Brier score and in-memory paper accounting.
+- Additional synthetic components: bounded CRC32 archive frames, index-window comparison, sequence-aware L2 reconstruction, offline decision-to-settlement pipeline, GET-only Kalshi REST adapter, and isolated in-memory ZSTD Parquet + SHA256 roundtrip.
 
 Not implemented:
 - Signed read-only WSS/REST ingestion, persistent raw event journal, sealed Parquet and source verification.
