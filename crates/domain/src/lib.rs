@@ -164,6 +164,9 @@ pub struct BinaryFinal {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvidenceTier { VenueFinal, Independent }
 impl BinaryFinal {
+    /// Distinct identifiers and hashes are NOT sufficient provenance to
+    /// certify independent reference observations. Until an authenticated
+    /// source+rules verifier exists this returns at most VenueFinal.
     pub fn tier(&self) -> Result<EvidenceTier, Error> {
         if self.market.trim().is_empty() || self.rules_sha256.trim().is_empty() ||
             self.venue_final.source_id.trim().is_empty() ||
@@ -177,7 +180,7 @@ impl BinaryFinal {
                 other.source_id == self.venue_final.source_id ||
                 other.content_sha256 == self.venue_final.content_sha256 =>
                     Err(Error::EvidenceNotIndependent),
-            Some(_) => Ok(EvidenceTier::Independent),
+            Some(_) => Ok(EvidenceTier::VenueFinal),
         }
     }
 }
@@ -270,7 +273,7 @@ mod tests {
         assert_eq!(settle_binary(&f,&bad),Err(Error::EvidenceNotIndependent));
         let distinct=BinaryFinal{independent:Some(Evidence{
             source_id:"independent-index".into(),content_sha256:"z".into()}),..s};
-        assert_eq!(settle_binary(&f,&distinct).unwrap().tier,EvidenceTier::Independent);
+        assert_eq!(settle_binary(&f,&distinct).unwrap().tier,EvidenceTier::VenueFinal);
     }
     #[test] fn reject_rule_mismatch() {
         let f=ModeledBuyFill{market:"M".into(),rules_sha256:"r2".into(),side:Side::Yes,
