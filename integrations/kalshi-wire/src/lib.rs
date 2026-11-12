@@ -154,6 +154,68 @@ pub fn decode(raw:&str,received_ns:i64)->Result<Message,Error>{
         _=>unreachable!(),
     }
 }
+
+/// Read-only accommodation for historical Oct 2026 wire clock skew and
+/// alternate per-event timestamp fields. The strict decoder is unchanged.
+/// Original stamps remain available; any positive future skew beyond 2s fails.
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+pub enum ClockOrigin { Clock, MessageTsMs }
+#[derive(Debug,Clone)]
+pub struct ArchivedDecoded {
+    pub message:Message,
+    pub raw_sending_ns:i64,
+    pub raw_event_ns:Option<i64>,
+    pub source_ahead_of_receipt:bool,
+    pub clock_origin:ClockOrigin,
+}
+pub fn decode_archived(raw:&str,receipt_ns:i64)->Result<ArchivedDecoded,Error>{
+    if raw.len()>MAX_WIRE_BYTES{return Err(Error::Oversize);}
+    let mut root:Value=serde_json::from_str(raw).map_err(|_|Error::Malformed)?;
+    let sending=timestamp_ms(&root,"sending_ts_ms")?;
+    if receipt_ns<=0||sending<0||sending.saturating_sub(receipt_ns)>2_000_000_000 {
+        return Err(Error::InvalidTimestamp);
+    }
+    let typ=text(&root,"type")?;
+    let mut clock_origin=ClockOrigin::Clock;
+    let mut raw_event_ns=None;
+    let mut event_ahead=false;
+    if matches!(typ.as_str(),"orderbook_snapshot"|"orderbook_delta"|"trade"){
+        let msg=root.get_mut("msg").ok_or(Error::MissingField("msg"))?;
+        raw_event_ns=msg.get("ts_ms").and_then(Value::as_i64)
+            .and_then(|n|n.checked_mul(1_000_000));
+        event_ahead=raw_event_ns.is_some_and(|n|n>receipt_ns);
+        if raw_event_ns.is_some_and(|n|n.saturating_sub(receipt_ns)>2_000_000_000){
+            return Err(Error::InvalidTimestamp);
+        }
+        if !msg.get("clock").is_some_and(Value::is_u64) &&
+            matches!(typ.as_str(),"orderbook_snapshot"|"orderbook_delta"){
+            let clock=msg.get("ts_ms").and_then(Value::as_u64)
+                .ok_or(Error::MissingField("clock or ts_ms"))?;
+            msg.as_object_mut().ok_or(Error::Malformed)?
+                .insert("clock".into(),Value::from(clock));
+            clock_origin=ClockOrigin::MessageTsMs;
+        }
+        // A public-trade event time in the capture's future is not
+        // causally available. The raw source value remains above.
+        if typ=="trade"&&event_ahead{
+            msg.as_object_mut().ok_or(Error::Malformed)?.remove("ts_ms");
+        }
+    }
+    let send_ahead=sending>receipt_ns;
+    if send_ahead{
+        // Zero is an explicit UNKNOWN aligned exchange timestamp sentinel;
+        // never replace source time with receipt time.
+        root.as_object_mut().ok_or(Error::Malformed)?
+            .insert("sending_ts_ms".into(),Value::from(0));
+    }
+    let canonical=serde_json::to_string(&root).map_err(|_|Error::Malformed)?;
+    let message=decode(&canonical,receipt_ns)?;
+    Ok(ArchivedDecoded{
+        message,raw_sending_ns:sending,raw_event_ns,
+        source_ahead_of_receipt:send_ahead||event_ahead,clock_origin
+    })
+}
+
 #[cfg(test)]
 mod tests{
     use super::*;
@@ -210,5 +272,49 @@ mod tests{
         assert!(decode("{}",1_500_000_000).is_err());
         assert!(matches!(decode(r#"{"type":"subscription_ack"}"#,2_000_000_000),
             Ok(Message::Unhandled(_))));
+    }
+}
+
+
+#[cfg(test)]
+mod real_archival_message_tests {
+    use super::*;
+    const DELTA:&str=r#"{"type":"orderbook_delta","sid":1,"seq":7574674,"msg":{"delta_fp":"-15.95","market_id":"01a16a5a-aeb3-7b39-8061-52758c8f1b48","market_ticker":"KXBTC15M-26OCT241900-00","price_dollars":"0.3900","side":"yes","ts":"2026-10-24T22:47:37.403Z","ts_ms":1792882057403},"sending_ts_ms":1792882057407}"#;
+    const TRADE:&str=r#"{"type":"trade","sid":2,"seq":523370,"msg":{"count_fp":"15.95","is_block_trade":false,"market_ticker":"KXBTC15M-26OCT241900-00","no_price_dollars":"0.6100","taker_book_side":"ask","taker_outcome_side":"no","taker_side":"no","trade_id":"0724b07d-7329-b6f7-2851-8aaa6ac4c834","ts":1792882057,"ts_ms":1792882057403,"yes_price_dollars":"0.3900"},"sending_ts_ms":1792882057407}"#;
+    const RECEIPT:i64=1_792_882_057_074_000_000;
+    #[test] fn actual_delta_without_clock_is_decoded_but_source_skew_is_flagged(){
+        assert!(decode(DELTA,RECEIPT).is_err());
+        let parsed=decode_archived(DELTA,RECEIPT).unwrap();
+        assert!(parsed.source_ahead_of_receipt);
+        assert_eq!(parsed.clock_origin,ClockOrigin::MessageTsMs);
+        assert_eq!(parsed.raw_sending_ns,1_792_882_057_407_000_000);
+        assert_eq!(parsed.raw_event_ns,Some(1_792_882_057_403_000_000));
+        match parsed.message{
+            Message::Delta(d)=>{
+                assert_eq!(d.market,"KXBTC15M-26OCT241900-00");
+                assert_eq!(d.delta_fp,-1595);
+                assert_eq!(d.price.ticks(),3900);
+                assert_eq!(d.exchange_ns,0);
+                assert_eq!(d.clock,1792882057403);
+            },
+            _=>panic!("Expected real orderbook delta")
+        }
+    }
+    #[test] fn real_trade_future_time_never_leaks_into_model(){
+        let parsed=decode_archived(TRADE,RECEIPT).unwrap();
+        assert!(parsed.source_ahead_of_receipt);
+        assert_eq!(parsed.raw_event_ns,Some(1_792_882_057_403_000_000));
+        match parsed.message{
+            Message::Trade(t)=>{
+                assert_eq!(t.count_fp,1595);
+                assert_eq!(t.yes_price.ticks(),3900);
+                assert_eq!(t.event_ns,None);
+            },
+            _=>panic!("Expected real trade")
+        }
+    }
+    #[test] fn excessive_future_skew_rejected(){
+        assert!(matches!(decode_archived(DELTA,RECEIPT-3_000_000_000),
+            Err(Error::InvalidTimestamp)));
     }
 }
