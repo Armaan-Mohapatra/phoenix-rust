@@ -1,0 +1,20 @@
+name: Rust historical input adapter tests
+on:
+  push:
+    branches: [codex/historical-adapter-v1]
+    paths: ['integrations/historical-input/**','.github/workflows/historical-input.yml']
+  pull_request:
+    paths: ['integrations/historical-input/**','.github/workflows/historical-input.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --manifest-path integrations/historical-input/Cargo.toml
