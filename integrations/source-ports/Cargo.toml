@@ -1,0 +1,10 @@
+[package]
+name="phoenix-source-ports"
+version="0.1.0"
+publish=false
+edition="2021"
+
+[workspace]
+
+[dependencies]
+phoenix-domain={path="../../crates/domain"}

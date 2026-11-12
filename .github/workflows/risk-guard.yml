@@ -1,0 +1,19 @@
+name: Tarpboi-source risk-guard Rust behavioral tests
+on:
+  push:
+    branches: [codex/integrated-upstream-adoption-v1]
+    paths: ['integrations/risk-guard/**','.github/workflows/risk-guard.yml']
+  pull_request:
+    paths: ['integrations/risk-guard/**','.github/workflows/risk-guard.yml']
+permissions:
+  contents: read
+jobs:
+  guard:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --manifest-path integrations/risk-guard/Cargo.toml

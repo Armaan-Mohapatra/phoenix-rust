@@ -1,33 +1,17 @@
-# Proposed third-party adoption (source review, not integration claims)
+# Phoenix Rust upstream repository adoption — source-verified 2026-11-12
 
-All code currently in this repository is original and does not vendor the external projects below. A source may be adopted only after pinned SHA, LICENSE/NOTICE, behavioral parity and dependency review.
+See [full 25-repository pinned source audit](UPSTREAM_SOURCE_AUDIT_2026-11-12.md) for exact upstream SHAs, paths, functions, licenses, integration decisions, and test evidence.
 
-| Source | Specific purpose | Status |
-|---|---|---|
-| nkaz001/hftbacktest (MIT) | Reuse or adapt Rust backtest-only queue/latency modeling | CANDIDATE, not linked |
-| Jon-Becker/prediction-market-analysis (MIT) | Incremental Parquet schemas, dedupe, manifest/indexing | Design/test reference |
-| YichengYang-Ethan/oracle3-prediction-market-agent (Apache-2.0) | Fee-aware implication/exclusivity constraint hypotheses | Translate to Rust later |
-| ryanfrigo/kalshi-ai-trading-bot (MIT) | Forecast calibration, executable odds, abstention | Partial concepts reproduced independently |
-| betcode-org/flumine (MIT) | Event/order lifecycle tests, cancellations, partial fills | Reference, not a Kalshi engine |
-| pmxt-dev/pmxt (MIT) | Read-only normalized multi-venue data interfaces | Reference |
-| braedonsaunders/homerun (AGPL-3.0) | L2 replay and walk-forward research architecture | Reference ONLY, no code copied |
-| komako-workshop/digital-oracle (MIT) | Timestamped reference sources and fixtures | Future |
-| rodlaf/KalshiMarketMaker (MIT) | Maker inventory risk and spread strategy hypotheses | Future |
-| OctagonAI/kalshi-trading-bot-cli (MIT) | Model-comparison and research journaling | Future |
-| tarpboi/Prediction-Markets-Trading-Bot-Toolkits (MIT) | Rust venue abstraction and risk controls | Future |
-| alsk1992/CloddsBot (MIT) | Decision traces and risk constraints | Reference, no agent automation |
-| taetaehoho/poly-kalshi-arb (unlicensed) | Paired-leg risk hypotheses | No copy |
-| ImMike/polymarket-arbitrage (unlicensed) | Cross-venue matching ideas | No copy |
-| CarlosIbCu/polymarket-kalshi-btc-arbitrage-bot (MIT) | Contract strike identity tests | Future |
-| meloner3/poly-kalshi-sports-bot (unlicensed) | Event matching | No copy |
-| dexorynlabs/polymarket-trading-bots (MIT) | Extreme-price strategy stress tests | Reference only |
-| suislanchez/polymarket-kalshi-weather-bot (unlicensed) | Weather ensemble research | Future |
-| machina-sports/sports-skills (MIT) | Sports event source mapping | Future |
-| livetennisapi/polymarket-tennis (MIT) | Observe-only tennis result matching | Future |
-| kuest/prediction-market (custom) | Building a new exchange is out of scope | Exclude |
-| aarora4/Awesome-Prediction-Market-Tools (no declared license) | Discovery index | Reference only |
-| Nour-Br/Kalshi-crypto-15m-trading-bot (unlicensed) | No reproducible public methodology established | No copy |
-| Kalshi/kalshi-starter-code-python (unlicensed) | Reference API requests and auth signatures | No copy |
-| abhaymettu/kalshi-calibration (unlicensed, archived) | Brier/fee research questions | No copy |
+**Status: 1 direct pinned Rust dependency integrated and tested; 3 independent Rust source-backed ports tested; 21 other references/blocked/excluded.**
 
-All annotations are provisional metadata and not code-license legal determinations. Incomplete modules and backtest marketing claims are not accepted as production-grade evidence.
+- **DIRECT_INTEGRATION:** `nkaz001/hftbacktest` at SHA `5f3ec40b...`, optional backtest-only Rust queue/latency adapter, Windows/Linux [CI success](https://github.com/Armaan-Mohapatra/phoenix-rust/actions/runs/43280365680). No live feature, no real-fill parity.
+- **PORT_TO_RUST (original Rust code):** Oracle3 Apache-2.0 static fee-aware binary constraints, Ryan Frigo MIT forward-only edge/leakage tests in `integrations/source-ports`, Windows/Linux [CI success](https://github.com/Armaan-Mohapatra/phoenix-rust/actions/runs/43281854717). Neither authenticates an outcome.
+- **PORT_TO_RUST (original Rust code):** Tarpboi MIT two-stage risk circuit, fixed-point money and deterministic as-of gates, in `integrations/risk-guard`; Windows/Linux [CI success](https://github.com/Armaan-Mohapatra/phoenix-rust/actions/runs/43284076370). No live broker linked.
+- **TEST_REFERENCE:** Jon-Becker indexer, flumine simulation, digital-oracle cache/snapshots, pmxt read-only venue normalization, rodlaf maker quote sizing, Octagon clustered bootstrap, CloddsBot risk circuits, machinа-sports Kalshi docs, livetennis matching, Kalshi official starter.
+- **SOURCE_ONLY:** CarlosIbCu historical hourly market slug, dexorynlabs planned 1c/99c bots.
+- **BLOCKED:** Homerun AGPL-3.0 copying, unlicensed taetaehoho/ImMike/meloner/suislanchez/abhaymettu implementations.
+- **EXCLUDED:** Kuest exchange infrastructure, Awesome list-only repo, Nour-Br README-only repo.
+
+The only direct upstream source integration is an OPTIONAL Git dependency in a separate package. The Rust workspace has no order-submission endpoint. **No real historical data or actual fills validated.**
+
+Prior local audit of 25 clones was not accessible here; this file verifies current remote commit content and existing GitHub CI, not the user laptop's E: clones. Do not merge, deploy, alter collectors or production data.

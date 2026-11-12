@@ -32,3 +32,10 @@ For upstream design consult official Kalshi API docs at https://docs.kalshi.com/
 ## Reporting milestone
 
 PR #13 supplies a standalone deterministic synthetic/research performance reporter. It preserves negative outcomes, leaves pending P&L null, and separates modelled settlement claims from actual independent proof. Not an automated publisher or a completed G8 operational release.
+
+## 2026-11-12 upstream and real-data additions
+
+- PR #16 assembles all previous sibling modules and adds a **direct, pinned, backtest-only hftbacktest** Rust queue/latency adapter. Upstream live features are disabled; synthetic queue parity and Linux/Windows tests passed.
+- Source-level independent Rust mathematical ports from Apache-2.0 Oracle3 and MIT Ryan Frigo, plus an MIT Tarpboi-inspired risk guard, have passed standalone CI. These are **not direct upstream dependencies** and are not deployed.
+- A minimal projected sample of a **real archived October 24 BTC paper ledger** passed fixed-point P&L arithmetic on Windows/Linux. It is not a raw orderbook replay, actual venue fill, independent index settlement or verified after-cost investment strategy.
+- The full assembled integration workflow now includes the core, L2 codec, archive, historical-input, paper journal, reporting, HFT queue, three port families and real-ledger parity. Treat the latest CI result as authoritative; a passing fixture matrix cannot promote release gates G4/G5.

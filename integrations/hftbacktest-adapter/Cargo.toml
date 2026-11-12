@@ -1,0 +1,17 @@
+[package]
+name="phoenix-hftbacktest-adapter"
+version="0.1.0"
+publish=false
+edition="2024"
+rust-version="1.91.1"
+
+[workspace]
+
+[features]
+default=[]
+upstream-hft=["dep:hftbacktest"]
+
+[dependencies]
+phoenix-domain={path="../../crates/domain"}
+phoenix-sim={path="../../crates/sim"}
+hftbacktest={git="https://github.com/nkaz001/hftbacktest",rev="5f3ec40b2afb764e0fea112f941ed85523ef4e88",package="hftbacktest",default-features=false,features=["backtest"],optional=true}
