@@ -1,0 +1,17 @@
+name: Rust Parquet batch adapter tests
+on:
+  push:
+    branches: [codex/rust-foundation-v1]
+    paths: ['integrations/parquet-batch/**','.github/workflows/parquet-batch.yml']
+  pull_request:
+    paths: ['integrations/parquet-batch/**','.github/workflows/parquet-batch.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile & test isolated bounded Parquet fixture; no production data
+        run: cargo test --manifest-path integrations/parquet-batch/Cargo.toml
