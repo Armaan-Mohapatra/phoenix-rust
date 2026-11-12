@@ -150,19 +150,19 @@ impl Journal {
             .map_err(|e|Error::Storage(format!("{e:?}")))?;
         let mut all=BTreeMap::<(String,u64),Event>::new();
         archive.visit_verified_rows(|manifest,id,row|{
-            let issue=||phoenix_durable_archive::Error::InvalidManifest;
+            let issue=|reason:&str|phoenix_durable_archive::Error::Parquet(reason.to_owned());
             if manifest.scope.feed!=FEED||manifest.scope.session!=SESSION||
                 row.feed!=FEED||row.session!=SESSION||row.kind!=50 {
-                return Err(issue());
+                return Err(issue("wrong feed, session or kind"));
             }
-            let e:Event=serde_json::from_slice(&row.payload).map_err(|_|issue())?;
+            let e:Event=serde_json::from_slice(&row.payload).map_err(|_|issue("invalid serialized paper event"))?;
             if e.portfolio()!=row.market||e.at_ns()!=row.received_ns||
                 row.exchange_ns!=row.received_ns||e.seq()!=row.sequence||
                 id.id!=format!("{}:{}",e.portfolio(),e.seq()){
-                return Err(issue());
+                return Err(issue("identity, sequence, timestamp or event-id mismatch"));
             }
             if all.insert((e.portfolio().into(),e.seq()),e).is_some(){
-                return Err(issue());
+                return Err(issue("duplicate portfolio/sequence in archive"));
             }
             Ok(())
         }).map_err(|e|Error::CorruptJournal(format!("{e:?}")))?;
