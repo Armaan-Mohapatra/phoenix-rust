@@ -480,6 +480,12 @@ pub mod forensic {
             let m=match side{Side::Yes=>&self.yes,Side::No=>&self.no};
             m.iter().next_back().map(|(p,q)|(*p,*q))
         }
+        /// Read-only full fractional-depth view in best-bid-first order.
+        /// This is an observation, not authenticated executable liquidity.
+        pub fn bids_fp(&self,side:Side)->Vec<(Price,u64)>{
+            let m=match side{Side::Yes=>&self.yes,Side::No=>&self.no};
+            m.iter().rev().map(|(p,q)|(*p,*q)).collect()
+        }
         pub fn best_ask_fp(&self,side:Side)->Option<(Price,u64)>{
             let m=match side{Side::Yes=>&self.no,Side::No=>&self.yes};
             m.iter().next_back().map(|(p,q)|(p.complement(),*q))
