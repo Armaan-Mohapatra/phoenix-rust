@@ -915,6 +915,22 @@ mod phase2_archive_fault_tests{
         assert_eq!(fs::read(original).unwrap(),before);
     }
     #[test]
+    fn forensic_quarantine_collision_never_overwrites_previous_evidence(){
+        let t=TempDir::new().unwrap();let root=t.path().join("research");
+        let mut a=Archive::open_external_index(&root).unwrap();
+        assert!(a.publish_with_external_lookup_fault(scope(),&[event(1)],
+            |_|Ok(None),Fault::AfterDataSync).is_err());
+        drop(a);
+        let pending=fs::read_dir(root.join("pending")).unwrap()
+            .next().unwrap().unwrap().path();
+        let name=pending.file_name().unwrap();
+        let previous=root.join("quarantine").join(name);
+        fs::write(&previous,b"previous-forensic-record").unwrap();
+        assert!(Archive::open_external_index(&root).is_err());
+        assert_eq!(fs::read(&previous).unwrap(),b"previous-forensic-record");
+        assert!(pending.is_file());
+    }
+    #[test]
     fn marker_content_is_exact_not_just_a_file_presence_check(){
         let t=TempDir::new().unwrap();let root=t.path().join("research");
         let a=Archive::open(&root).unwrap();drop(a);
