@@ -155,6 +155,17 @@ mod tests{
         assert!(x.manual_intervention_required);
         assert_eq!(x.errors,vec!["CORRUPT_MANIFEST"]);
     }
+    #[test]fn failure_points_have_explicit_source_evidence_states(){
+        use FaultPoint as F;
+        assert_eq!(F::DuringDataWrite.interrupted_state(),
+            PublicationState::PreparedUncommitted);
+        assert_eq!(F::AfterDataRename.interrupted_state(),
+            PublicationState::DataSyncedUnsealed);
+        assert_eq!(F::FailManifestPublish.interrupted_state(),
+            PublicationState::DataSyncedUnsealed);
+        assert_eq!(F::AfterManifestRename.interrupted_state(),
+            PublicationState::SealedNotIndexed);
+    }
     #[test]fn disk_and_permission_errors_classified_without_loss_claims(){
         assert_eq!(StorageFailure::from_io(&io::Error::from_raw_os_error(28)),
             StorageFailure::DiskFull);
