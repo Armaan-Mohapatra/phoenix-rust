@@ -168,6 +168,49 @@ fn valid_reuse(c:&ReusableMarketCheckpoint,s:&MarketSpec,
     }
     true
 }
+/// Optional caller-provided, independently derived per-market partition
+/// index. A global SHA manifest alone does not reveal which ticker a member
+/// contains; this typed index must be verified against original source.
+#[derive(Debug,Clone,Serialize,Deserialize)]
+pub struct IndexedPartition{
+    pub ticker:String,pub member:String,pub member_sha256:String,
+    pub first_received_ns:i64,pub last_received_ns:i64,
+    pub independent_index_sha256:String,
+}
+/// Select an explicitly indexed bounded market window without opening files.
+/// The source-loader subsequently independently verifies actual bytes.
+pub fn members_from_verified_index(index:&[IndexedPartition],
+    catalog_bytes:&[u8],ticker:&str,start_ns:i64,end_ns:i64,
+    expected_index_sha256:&str)->Result<Vec<String>,Error>{
+    if index.len()>10_000||!valid_name(ticker)||start_ns<=0||
+        end_ns<=start_ns||!valid_hash(expected_index_sha256){
+        return Err(Error::InvalidManifest);
+    }
+    let catalog=catalog(catalog_bytes).map_err(Error::Source)?;
+    let mut names=BTreeSet::new();
+    for part in index{
+        if !valid_name(&part.ticker)||part.first_received_ns<=0||
+            part.first_received_ns>part.last_received_ns||
+            part.independent_index_sha256!=expected_index_sha256||
+            !valid_hash(&part.member_sha256){
+            return Err(Error::InvalidManifest);
+        }
+        if part.ticker!=ticker||
+            part.last_received_ns<start_ns||
+            part.first_received_ns>end_ns{continue;}
+        let source=catalog.get(&part.member)
+            .ok_or_else(||Error::MissingMember(part.member.clone()))?;
+        if !source.parquet_sha256.eq_ignore_ascii_case(&part.member_sha256){
+            return Err(Error::HashMismatch);
+        }
+        if !names.insert(part.member.clone()){
+            return Err(Error::DuplicateMember(part.member.clone()));
+        }
+        if names.len()>MAX_MEMBERS{return Err(Error::InvalidBatch);}
+    }
+    if names.is_empty(){return Err(Error::MissingMember(ticker.into()));}
+    Ok(names.into_iter().collect())
+}
 /// Caller provides explicit verified catalog bytes, allowlists and ZIP paths.
 /// Processes at most four markets per call (<=32 named members each); caller
 /// persists returned content-addressed checkpoints outside production data.
@@ -323,6 +366,55 @@ mod tests{
             engine_revision_sha256:"d".repeat(64)};
         assert!(!valid_reuse(&p,&spec,&fp,&"a".repeat(64),
             &"d".repeat(64),&entries));
+    }
+    #[test]fn indexed_discovery_rejects_unknown_and_conflicting_members(){
+        let member="archive/curated/raw_events/x.parquet";
+        let catalog=format!(r#"{{"parquet":"curated/raw_events/x.parquet",
+            "parquet_sha256":"{}","rows":2}}"#,"b".repeat(64));
+        let idx=[IndexedPartition{ticker:"BTC".into(),member:member.into(),
+            member_sha256:"b".repeat(64),first_received_ns:10,
+            last_received_ns:20,independent_index_sha256:"d".repeat(64)}];
+        let selected=members_from_verified_index(&idx,catalog.as_bytes(),
+            "BTC",15,25,&"d".repeat(64)).unwrap();
+        assert_eq!(selected,vec![member]);
+        assert!(members_from_verified_index(&idx,catalog.as_bytes(),
+            "ETH",15,25,&"d".repeat(64)).is_err());
+        let mut broken=idx.to_vec();broken[0].member_sha256="e".repeat(64);
+        assert!(matches!(members_from_verified_index(&broken,catalog.as_bytes(),
+            "BTC",15,25,&"d".repeat(64)),Err(Error::HashMismatch)));
+    }
+    #[test]fn genuine_reused_report_must_match_member_proofs_not_only_json_sha(){
+        let x=spec("BTC",Asset::Btc,"KXBTC15M");
+        let member=x.named_members[0].clone();
+        let entries=BTreeMap::from([(member.clone(),"b".repeat(64))]);
+        let fingerprint=fingerprint(&x,&"a".repeat(64),&"d".repeat(64),
+            &entries).unwrap();
+        let report=serde_json::json!({"market_ticker":"BTC",
+            "catalog_sha256":"a".repeat(64),
+            "partition_proofs":[{"member":member,"sha256":"b".repeat(64)}],
+            "status":"INCOMPLETE","missing_evidence":["NO_SNAPSHOT"]});
+        let report_json=report.to_string();
+        let prior=ReusableMarketCheckpoint{schema_version:1,
+            ticker:"BTC".into(),fingerprint_sha256:fingerprint.clone(),
+            manifest_sha256:"a".repeat(64),
+            report_sha256:sha(report_json.as_bytes()),report_json,
+            engine_revision_sha256:"d".repeat(64)};
+        assert!(valid_reuse(&prior,&x,&fingerprint,&"a".repeat(64),
+            &"d".repeat(64),&entries));
+        let mut wrong=prior;wrong.report_sha256="e".repeat(64);
+        assert!(!valid_reuse(&wrong,&x,&fingerprint,&"a".repeat(64),
+            &"d".repeat(64),&entries));
+    }
+    #[test]fn duplicate_market_and_batch_bounds_stop_before_zip_io(){
+        let spec=spec("BTC",Asset::Btc,"KXBTC15M");
+        let catalog=format!(r#"{{"parquet":"curated/raw_events/x.parquet",
+            "parquet_sha256":"{}","rows":2}}"#,"b".repeat(64));
+        let paths=vec![PathBuf::from("synthetic-not-on-disk.zip")];
+        assert!(matches!(run_batch(&[spec.clone(),spec],catalog.as_bytes(),
+            &paths,&"d".repeat(64),&[]),Err(Error::DuplicateMarket)));
+        let many=vec![spec("BTC",Asset::Btc,"KXBTC15M");5];
+        assert!(matches!(run_batch(&many,catalog.as_bytes(),
+            &paths,&"d".repeat(64),&[]),Err(Error::InvalidBatch)));
     }
     #[test]fn no_real_market_is_automatically_execution_eligible(){
         let out=MarketBatchOutcome{
