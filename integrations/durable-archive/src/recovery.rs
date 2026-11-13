@@ -22,13 +22,16 @@ pub enum StorageFailure {
 }
 impl StorageFailure {
     pub fn from_io(e:&io::Error)->Self{
+        #[cfg(unix)]
         match e.raw_os_error(){
-            // POSIX ENOSPC and Win32 ERROR_DISK_FULL
-            Some(28)|Some(112)=>return Self::DiskFull,
-            // POSIX EROFS and Win32 ERROR_WRITE_PROTECT
-            Some(30)|Some(19)=>return Self::ReadOnlyFilesystem,
-            // Windows ERROR_NOT_READY / ERROR_DEVICE_NOT_CONNECTED;
-            // classify on error code only, never infer actual data loss.
+            Some(28)=>return Self::DiskFull,          // ENOSPC
+            Some(30)=>return Self::ReadOnlyFilesystem, // EROFS
+            _=>{}
+        }
+        #[cfg(windows)]
+        match e.raw_os_error(){
+            Some(112)=>return Self::DiskFull,          // ERROR_DISK_FULL
+            Some(19)=>return Self::ReadOnlyFilesystem, // ERROR_WRITE_PROTECT
             Some(21)|Some(1167)=>return Self::DisconnectedStorage,
             _=>{}
         }
@@ -167,7 +170,8 @@ mod tests{
             PublicationState::SealedNotIndexed);
     }
     #[test]fn disk_and_permission_errors_classified_without_loss_claims(){
-        assert_eq!(StorageFailure::from_io(&io::Error::from_raw_os_error(28)),
+        let disk_full_code=if cfg!(windows){112}else{28};
+        assert_eq!(StorageFailure::from_io(&io::Error::from_raw_os_error(disk_full_code)),
             StorageFailure::DiskFull);
         assert_eq!(StorageFailure::from_io(&io::Error::new(
             io::ErrorKind::PermissionDenied,"no")),
