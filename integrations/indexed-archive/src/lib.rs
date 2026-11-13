@@ -35,7 +35,8 @@ impl IndexedArchive {
         }
         let root=fs::canonicalize(root).map_err(io)?;
         // Archive's exclusive OS advisory lock covers this research root.
-        let archive=Archive::open(root.join("sealed")).map_err(archive_error)?;
+        let archive=Archive::open_external_index(root.join("sealed"))
+            .map_err(archive_error)?;
         let index=Index::open(root.join("event-index")).map_err(index_error)?;
         let mut this=Self{root,archive,index,poisoned:false,recovery:Recovery::default()};
         this.recovery=this.reconcile()?;
@@ -158,7 +159,14 @@ impl IndexedArchive {
     pub fn publish_fault(&mut self,scope:SourceScope,rows:&[EventRow],fault:Fault)
         ->Result<PublishResult,Error>{
         if self.poisoned{return Err(Error::Poisoned);}
-        let result=self.archive.publish(scope,rows).map_err(archive_error)?;
+        // This redb database has already been reconciled from all verified
+        // sealed manifests during open. It is now the authoritative duplicate
+        // lookup, so archive publication does not cache every historical ID.
+        let disk_index=&self.index;
+        let result=self.archive.publish_with_external_lookup(scope,rows,|id|{
+            disk_index.get(id).map_err(|err|
+                phoenix_durable_archive::Error::ExternalIndex(format!("{err:?}")))
+        }).map_err(archive_error)?;
         if result.partition_id.is_none(){return Ok(result);}
         if fault==Fault::AfterSealedManifest {
             self.poisoned=true;return Err(Error::Interrupted);
@@ -257,6 +265,29 @@ mod tests {
         assert_eq!(b.recovery().replayed,0);
     }
 
+    #[test]fn redb_is_the_duplicate_authority_after_cold_restart(){
+        let t=TempDir::new().unwrap();
+        let mut a=IndexedArchive::open(root(&t)).unwrap();
+        a.publish(scope(),&[event("unique",7)]).unwrap();
+        assert_eq!(a.archive.indexed_events(),0);
+        drop(a);
+        let mut b=IndexedArchive::open(root(&t)).unwrap();
+        assert_eq!(b.archive.indexed_events(),0);
+        let duplicate=b.publish(scope(),&[event("unique",7)]).unwrap();
+        assert_eq!((duplicate.added,duplicate.duplicates),(0,1));
+        let conflict=b.publish(scope(),&[event("unique",8)]);
+        assert!(matches!(conflict,Err(Error::Archive(_))));
+        let next=b.publish(scope(),&[event("fresh",9)]).unwrap();
+        assert_eq!(next.added,1);
+        assert_eq!(b.recovery().sealed,2);
+    }
+    #[test]fn external_publisher_rejects_direct_index_bypass(){
+        let t=TempDir::new().unwrap();
+        let mut a=IndexedArchive::open(root(&t)).unwrap();
+        // A caller without authoritative redb lookup must not publish data.
+        assert!(matches!(a.archive.publish(scope(),&[event("x",1)]),
+            Err(phoenix_durable_archive::Error::InvalidInput)));
+    }
     #[test]fn incremental_commit_preserves_new_partition_and_reopen_counts(){
         let t=TempDir::new().unwrap();
         let mut a=IndexedArchive::open(root(&t)).unwrap();
