@@ -81,6 +81,44 @@ impl Index {
         }
         Ok(ids)
     }
+    /// Stream committed partition IDs in key order, keeping no partition
+    /// vector or event-ID map in heap memory. The caller may inspect an
+    /// arbitrarily large committed database with a constant-size cursor.
+    pub fn visit_partition_ids<F>(&self,mut visit:F)->Result<usize,Error>
+    where F:FnMut(&str)->Result<(),Error>{
+        let tx=self.db.begin_read().map_err(io)?;
+        let table=tx.open_table(PARTITIONS).map_err(io)?;
+        let mut n=0usize;
+        for entry in table.iter().map_err(io)?{
+            let (key,_value)=entry.map_err(io)?;
+            visit(key.value())?;
+            n=n.checked_add(1).ok_or(Error::CapacityExceeded)?;
+        }
+        Ok(n)
+    }
+    /// Cursor-based page of partition IDs. The redb B+tree seeks to the
+    /// exclusive cursor rather than rereading all prior keys. The maximum
+    /// returned heap allocation is limited to 512 partition identifiers.
+    pub fn partition_page(&self,after:Option<&str>,limit:usize)
+        ->Result<Vec<String>,Error>{
+        if limit==0||limit>512||after.is_some_and(|s|!sha_ok(s)){
+            return Err(Error::InvalidInput);
+        }
+        let tx=self.db.begin_read().map_err(io)?;
+        let table=tx.open_table(PARTITIONS).map_err(io)?;
+        let mut range=if let Some(cursor)=after{
+            table.range((std::ops::Bound::Excluded(cursor),
+                std::ops::Bound::Unbounded)).map_err(io)?
+        }else{
+            table.iter().map_err(io)?
+        };
+        let mut page=Vec::with_capacity(limit);
+        for entry in range.by_ref().take(limit){
+            let (key,_)=entry.map_err(io)?;
+            page.push(key.value().to_owned());
+        }
+        Ok(page)
+    }
     pub fn partition_indexed(&self,sha:&str)->Result<bool,Error>{
         if !sha_ok(sha){return Err(Error::InvalidInput);}
         let tx=self.db.begin_read().map_err(io)?;
@@ -107,14 +145,27 @@ impl Index {
         }
         let encoded=format!("{manifest_sha}:{}",signature(events));
         let tx=self.db.begin_write().map_err(io)?;
-        {
+        let existing={
             let table=tx.open_table(PARTITIONS).map_err(io)?;
-            let existing=table.get(partition_sha).map_err(io)?
-                .map(|guard|guard.value().to_owned());
-            if let Some(existing)=existing {
-                if existing!=encoded{return Err(Error::ConflictingPartition);}
-                return Ok(ResultCount{inserted:0,existing:events.len(),already_committed:true});
+            table.get(partition_sha).map_err(io)?
+                .map(|guard|guard.value().to_owned())
+        };
+        if let Some(existing)=existing {
+            if existing!=encoded{return Err(Error::ConflictingPartition);}
+            // A matching marker alone cannot certify a corrupted or
+            // incompletely reconstructed ID table. Every <=256 event entry
+            // must still exist with the original manifest row digest.
+            let table=tx.open_table(EVENTS).map_err(io)?;
+            for (id,digest) in events{
+                let found=table.get(*id).map_err(io)?
+                    .map(|v|v.value().to_owned());
+                if found.as_deref()!=Some(*digest){
+                    return Err(Error::ConflictingEvent((*id).to_owned()));
+                }
             }
+            return Ok(ResultCount{
+                inserted:0,existing:events.len(),already_committed:true
+            });
         }
         let mut new_count=0;let mut old_count=0;
         {
@@ -172,11 +223,98 @@ mod tests{
         assert!(!idx.partition_indexed(&b).unwrap());
     }
     #[test]
+    fn matching_partition_marker_does_not_hide_missing_event_identity(){
+        let t=TempDir::new().unwrap();let db=Index::open(root(&t)).unwrap();
+        let part=sha('a');let manifest=sha('b');let digest=sha('c');
+        db.commit_verified_partition(&part,&manifest,&[
+            ("BTC:1",digest.as_str())]).unwrap();
+        // Inject a deliberately inconsistent redb state. The public
+        // write API cannot produce it, but recovery must still reject it.
+        let tx=db.db.begin_write().unwrap();
+        {
+            let mut table=tx.open_table(EVENTS).unwrap();
+            table.remove("BTC:1").unwrap();
+        }
+        tx.commit().unwrap();
+        assert_eq!(db.commit_verified_partition(&part,&manifest,&[
+            ("BTC:1",digest.as_str())]),
+            Err(Error::ConflictingEvent("BTC:1".into())));
+    }
+    #[test]
     fn existing_unknown_directory_is_never_initialized(){
         let t=TempDir::new().unwrap();let path=t.path().join("production-folder");
         fs::create_dir(&path).unwrap();
         assert!(matches!(Index::open(&path),Err(Error::NotResearchPath)));
         assert!(!path.join("identity.redb").exists());
+    }
+
+    #[test]
+    fn streaming_partition_walk_keeps_identity_index_on_disk(){
+        let t=TempDir::new().unwrap();let idx=Index::open(root(&t)).unwrap();
+        let mh=sha('f');
+        for n in 0..40u32{
+            let id=format!("{n:064x}");
+            let event=format!("market:event:{n}");
+            idx.commit_verified_partition(&id,&mh,&[(event.as_str(),mh.as_str())]).unwrap();
+        }
+        let mut observed=0usize;
+        let mut previous=String::new();
+        let count=idx.visit_partition_ids(|id|{
+            assert!(previous.as_str()<id);
+            previous=id.into();
+            observed+=1;Ok(())
+        }).unwrap();
+        assert_eq!((count,observed),(40,40));
+        assert_eq!(idx.get("market:event:39").unwrap(),Some(mh));
+    }
+    #[test]
+    fn cursor_pagination_is_exclusive_deterministic_and_bounded(){
+        let t=TempDir::new().unwrap();let db=Index::open(root(&t)).unwrap();
+        let mh=sha('a');
+        for n in 0..37u32{
+            let part=format!("{n:064x}");
+            let event=format!("event:{n}");
+            db.commit_verified_partition(&part,&mh,&[(event.as_str(),mh.as_str())]).unwrap();
+        }
+        let mut all=Vec::new();
+        let mut cursor:Option<String>=None;
+        loop{
+            let page=db.partition_page(cursor.as_deref(),7).unwrap();
+            if page.is_empty(){break;}
+            assert!(page.len()<=7);
+            cursor=page.last().cloned();
+            all.extend(page);
+        }
+        assert_eq!(all.len(),37);
+        assert!(all.windows(2).all(|p|p[0]<p[1]));
+        assert!(db.partition_page(cursor.as_deref(),7).unwrap().is_empty());
+        assert_eq!(db.partition_page(None,513),Err(Error::InvalidInput));
+    }
+    /// Explicit opt-in stress regression for the final local benchmark
+    /// campaign. Excluded from ordinary unit tests only because of disk I/O.
+    #[test]
+    #[ignore = "final local scale campaign: ~1,048,576 logical identities, 4096 ACID commits"]
+    fn million_logical_ids_in_bounded_256_id_transactions(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let digest=sha('f');
+        {
+            let db=Index::open(&root).unwrap();
+            for p in 0..4096u32{
+                let partition=format!("{p:064x}");
+                let owned=(0..256u32).map(|n|{
+                    (format!("{p}:{n}"),digest.clone())
+                }).collect::<Vec<_>>();
+                let refs=owned.iter().map(|(a,b)|(a.as_str(),b.as_str()))
+                    .collect::<Vec<_>>();
+                let result=db.commit_verified_partition(&partition,&digest,&refs).unwrap();
+                assert_eq!(result.inserted,256);
+            }
+        }
+        let db=Index::open(&root).unwrap();
+        let mut partitions=0usize;
+        db.visit_partition_ids(|_|{partitions+=1;Ok(())}).unwrap();
+        assert_eq!(partitions,4096);
+        assert_eq!(db.get("4095:255").unwrap(),Some(digest));
     }
     #[test]
     fn batch_is_bounded_to_existing_partition_size(){

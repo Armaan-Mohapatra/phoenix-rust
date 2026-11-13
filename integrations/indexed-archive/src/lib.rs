@@ -1,9 +1,9 @@
 //! Isolated research-only integration: sealed Parquet first, ACID index second.
 //! No production collector, live SQLite/WAL or exchange endpoints.
 use phoenix_disk_identity::Index;
-use phoenix_durable_archive::{Archive,EventRow,PublishResult,SealedPartition,SourceScope,MAX_PARTITIONS,MAX_MANIFEST_BYTES};
+use phoenix_durable_archive::{Archive,EventRow,PublishResult,SealedPartition,SourceScope,MAX_EXTERNAL_PARTITIONS,MAX_MANIFEST_BYTES};
 use sha2::{Digest,Sha256};
-use std::{collections::BTreeSet,fs::{self,File,OpenOptions},io::{Read,Write},path::{Path,PathBuf}};
+use std::{fs::{self,File,OpenOptions},io::{Read,Write},path::{Path,PathBuf}};
 const MARKER:&str="PHOENIX_RESEARCH_SEALED_INDEX_ONLY";
 const MAGIC:&[u8]=b"Phoenix sealed+redb research archive v1\n";
 #[derive(Debug)]
@@ -21,6 +21,13 @@ pub struct Recovery{pub sealed:usize,pub replayed:usize,pub already_indexed:usiz
 pub struct IndexedArchive{root:PathBuf,archive:Archive,index:Index,poisoned:bool,recovery:Recovery}
 impl IndexedArchive {
     pub fn open(path:impl AsRef<Path>)->Result<Self,Error>{
+        Self::open_with_partition_limit(path,MAX_EXTERNAL_PARTITIONS)
+    }
+    pub fn open_with_partition_limit(path:impl AsRef<Path>,max_partitions:usize)
+        ->Result<Self,Error>{
+        if max_partitions==0||max_partitions>MAX_EXTERNAL_PARTITIONS{
+            return Err(Error::InvalidManifest);
+        }
         let root=path.as_ref();
         if root.exists(){
             if fs::read(root.join(MARKER)).map_err(|_|Error::UnsafeRoot)?!=MAGIC {
@@ -35,8 +42,8 @@ impl IndexedArchive {
         }
         let root=fs::canonicalize(root).map_err(io)?;
         // Archive's exclusive OS advisory lock covers this research root.
-        let archive=Archive::open_external_index(root.join("sealed"))
-            .map_err(archive_error)?;
+        let archive=Archive::open_external_index_with_limit(
+            root.join("sealed"),max_partitions).map_err(archive_error)?;
         let index=Index::open(root.join("event-index")).map_err(index_error)?;
         let mut this=Self{root,archive,index,poisoned:false,recovery:Recovery::default()};
         this.recovery=this.reconcile()?;
@@ -44,59 +51,84 @@ impl IndexedArchive {
     }
     pub fn recovery(&self)->&Recovery{&self.recovery}
     pub fn find(&self,id:&str)->Result<Option<String>,Error>{self.index.get(id).map_err(index_error)}
-    fn manifests(&self)->Result<Vec<(String,Vec<u8>,SealedPartition)>,Error>{
-        let mut files=Vec::new();
-        for item in fs::read_dir(self.root.join("sealed/manifests")).map_err(io)? {
-            let item=item.map_err(io)?;
-            if !item.file_type().map_err(io)?.is_file(){return Err(Error::InvalidManifest);}
-            files.push(item.path());
-            if files.len()>MAX_PARTITIONS{return Err(Error::InvalidManifest);}
-        }
-        files.sort();
-        let mut out=Vec::with_capacity(files.len());
-        for path in files{
-            if fs::metadata(&path).map_err(io)?.len()>MAX_MANIFEST_BYTES {
-                return Err(Error::InvalidManifest);
-            }
-            let mut data=Vec::new();
-            File::open(&path).map_err(io)?.take(MAX_MANIFEST_BYTES+1)
-                .read_to_end(&mut data).map_err(io)?;
-            if data.len() as u64>MAX_MANIFEST_BYTES{return Err(Error::InvalidManifest);}
-            let m:SealedPartition=serde_json::from_slice(&data)
-                .map_err(|_|Error::InvalidManifest)?;
-            let filename=path.file_name().and_then(|s|s.to_str()).unwrap_or("");
-            if !sha_valid(&m.partition_id)||m.partition_id!=m.parquet_sha256||
-                filename!=format!("{}.json",m.partition_id)||
-                m.rows==0||m.rows>256||m.rows!=m.events.len()||m.status!="sealed" {
-                return Err(Error::InvalidManifest);
-            }
-            out.push((m.partition_id.clone(),data,m));
-        }
-        Ok(out)
+    /// Disk-backed, exclusive-cursor partition listing. At most 512 strings
+    /// are returned, independent of the total archive history.
+    pub fn partition_page(&self,after:Option<&str>,limit:usize)
+        ->Result<Vec<String>,Error>{
+        self.index.partition_page(after,limit).map_err(index_error)
     }
+
     fn reconcile(&mut self)->Result<Recovery,Error>{
-        // Re-verify Parquet SHA/typed row readback before promoting any ID.
-        // Check each decoded row against its per-event SHA in the sealed manifest,
-        // not merely the partition-level Parquet checksum.
-        self.archive.visit_verified_rows(|_,_,_|Ok(())).map_err(archive_error)?;
-        let manifests=self.manifests()?;
-        let real=manifests.iter().map(|(s,_,_)|s.clone()).collect::<BTreeSet<_>>();
-        // A database-only "committed" marker must never invent source data.
-        for s in self.index.list_partition_ids(MAX_PARTITIONS+1).map_err(index_error)? {
-            if !real.contains(&s){return Err(Error::OrphanIndex(s));}
-        }
-        let mut r=Recovery{sealed:manifests.len(),..Recovery::default()};
-        for (id,manifest,part) in manifests{
-            let events=part.events.iter()
-                .map(|e|(e.id.as_str(),e.row_sha256.as_str()))
+        // Disk is the publication authority. Detect database-only markers
+        // without materializing the complete set of committed partition IDs.
+        let folder=self.root.join("sealed/manifests");
+        let mut phantom=None;
+        self.index.visit_partition_ids(|id|{
+            if !folder.join(format!("{id}.json")).is_file()&&phantom.is_none(){
+                phantom=Some(id.to_owned());
+            }
+            Ok(())
+        }).map_err(index_error)?;
+        if let Some(id)=phantom{return Err(Error::OrphanIndex(id));}
+        let mut recovered=Recovery::default();
+        // Read one manifest (<=1 MiB) plus one Parquet partition at a time.
+        // Every accepted ID is checked against the original decoded row hash
+        // before the separate redb ACID transaction can commit it.
+        for entry in fs::read_dir(&folder).map_err(io)?{
+            let entry=entry.map_err(io)?;
+            if !entry.file_type().map_err(io)?.is_file(){
+                return Err(Error::InvalidManifest);
+            }
+            recovered.sealed=recovered.sealed.checked_add(1)
+                .ok_or(Error::InvalidManifest)?;
+            if recovered.sealed>MAX_EXTERNAL_PARTITIONS{
+                return Err(Error::InvalidManifest);
+            }
+            let path=entry.path();
+            if fs::metadata(&path).map_err(io)?.len()>MAX_MANIFEST_BYTES{
+                return Err(Error::InvalidManifest);
+            }
+            let mut bytes=Vec::new();
+            File::open(&path).map_err(io)?.take(MAX_MANIFEST_BYTES+1)
+                .read_to_end(&mut bytes).map_err(io)?;
+            if bytes.len() as u64>MAX_MANIFEST_BYTES{
+                return Err(Error::InvalidManifest);
+            }
+            let m:SealedPartition=serde_json::from_slice(&bytes)
+                .map_err(|_|Error::InvalidManifest)?;
+            if !sha_valid(&m.partition_id)||m.parquet_sha256!=m.partition_id||
+                m.format_version!=1||m.status!="sealed"||
+                path.file_name().and_then(|s|s.to_str())!=
+                    Some(format!("{}.json",m.partition_id).as_str())||
+                m.rows==0||m.rows>256||m.rows!=m.events.len(){
+                return Err(Error::InvalidManifest);
+            }
+            let mut checked=Vec::with_capacity(m.rows);
+            self.archive.visit_verified_partition(&m.partition_id,|_,event,_|{
+                checked.push((event.id.clone(),event.row_sha256.clone()));
+                Ok(())
+            }).map_err(archive_error)?;
+            if checked.len()!=m.events.len()||
+                checked.iter().zip(m.events.iter()).any(|((id,d),e)|
+                    id!=&e.id||d!=&e.row_sha256){
+                return Err(Error::InvalidManifest);
+            }
+            let refs=checked.iter().map(|(id,d)|(id.as_str(),d.as_str()))
                 .collect::<Vec<_>>();
-            r.event_references+=events.len();
-            let outcome=self.index.commit_verified_partition(&id,&hash(&manifest),&events)
-                .map_err(index_error)?;
-            if outcome.already_committed {r.already_indexed+=1}
-            else{r.replayed+=1}
+            let result=self.index.commit_verified_partition(
+                &m.partition_id,&hash(&bytes),&refs).map_err(index_error)?;
+            recovered.event_references=recovered.event_references
+                .checked_add(refs.len()).ok_or(Error::InvalidManifest)?;
+            if result.already_committed{
+                recovered.already_indexed+=1;
+            }else{
+                recovered.replayed+=1;
+            }
         }
-        Ok(r)
+        if recovered.sealed!=self.archive.committed_partitions(){
+            return Err(Error::InvalidManifest);
+        }
+        Ok(recovered)
     }
 
     /// Incrementally promote only the newly sealed partition. Cold opens still
@@ -122,23 +154,18 @@ impl IndexedArchive {
             return Err(Error::InvalidManifest);
         }
 
-        // The in-memory sealed archive must agree *exactly* with the persisted
-        // manifest, including source scope and ordered event identity list.
-        // The archive's typed readback independently checks parquet and row SHA.
-        let persisted_value=serde_json::to_value(&persisted)
-            .map_err(|_|Error::InvalidManifest)?;
-        let mut memory_matches=None;
+        // Reopen the specific sealed manifest lazily; its Parquet and per-row
+        // SHA-256 checks are authoritative, not any heap-cached identities.
         let mut verified=Vec::<(String,String)>::with_capacity(persisted.rows);
         self.archive.visit_verified_partition(id,|memory,event,_row|{
-            if memory_matches.is_none(){
-                let value=serde_json::to_value(memory)
-                    .map_err(phoenix_durable_archive::Error::Json)?;
-                memory_matches=Some(value==persisted_value);
+            if memory.partition_id!=persisted.partition_id||
+                memory.rows!=persisted.rows{
+                return Err(phoenix_durable_archive::Error::InvalidManifest);
             }
             verified.push((event.id.clone(),event.row_sha256.clone()));
             Ok(())
         }).map_err(archive_error)?;
-        if memory_matches!=Some(true) || verified.len()!=persisted.events.len() ||
+        if verified.len()!=persisted.events.len() ||
             persisted.events.iter().zip(verified.iter()).any(|(a,(id,digest))|
                 a.id!=*id || a.row_sha256!=*digest){
             return Err(Error::InvalidManifest);
@@ -308,6 +335,55 @@ mod tests {
         assert!(b.find("inc5:31").unwrap().is_some());
     }
 
+
+    #[test]
+    fn lazy_indexed_archive_reopens_and_reconciles_without_manifest_heap(){
+        let t=TempDir::new().unwrap();
+        let mut archive=IndexedArchive::open_with_partition_limit(root(&t),12).unwrap();
+        for n in 0..10u64{
+            let e=event(&format!("id:{n}"),n+1);
+            archive.publish(scope(),&[e]).unwrap();
+        }
+        assert_eq!(archive.archive.committed_partitions(),10);
+        assert_eq!(archive.archive.indexed_events(),0);
+        drop(archive);
+        let reopened=IndexedArchive::open_with_partition_limit(root(&t),12).unwrap();
+        assert_eq!(reopened.recovery().sealed,10);
+        assert_eq!(reopened.recovery().already_indexed,10);
+        assert!(reopened.find("id:9").unwrap().is_some());
+    }
+    #[test]
+    fn disk_index_limit_exceed_is_explicit(){
+        let t=TempDir::new().unwrap();
+        let mut archive=IndexedArchive::open_with_partition_limit(root(&t),2).unwrap();
+        archive.publish(scope(),&[event("first",1)]).unwrap();
+        archive.publish(scope(),&[event("second",2)]).unwrap();
+        assert!(archive.publish(scope(),&[event("third",3)]).is_err());
+        drop(archive);
+        assert!(IndexedArchive::open_with_partition_limit(root(&t),1).is_err());
+    }
+
+    #[test]
+    fn recovered_partition_cursor_pages_without_manifest_cache(){
+        let t=TempDir::new().unwrap();
+        let mut a=IndexedArchive::open_with_partition_limit(root(&t),16).unwrap();
+        for n in 0..13u64{
+            a.publish(scope(),&[event(&format!("n:{n}"),n+1)]).unwrap();
+        }
+        drop(a);
+        let b=IndexedArchive::open_with_partition_limit(root(&t),16).unwrap();
+        let mut cursor:Option<String>=None;
+        let mut all=Vec::new();
+        loop{
+            let page=b.partition_page(cursor.as_deref(),4).unwrap();
+            if page.is_empty(){break;}
+            cursor=page.last().cloned();
+            all.extend(page);
+        }
+        assert_eq!(all.len(),13);
+        assert!(all.windows(2).all(|pair|pair[0]<pair[1]));
+        assert_eq!(b.recovery().already_indexed,13);
+    }
     #[test]fn unknown_root_and_orphan_index_fail_closed(){
         let t=TempDir::new().unwrap();let path=root(&t);
         fs::create_dir(&path).unwrap();
