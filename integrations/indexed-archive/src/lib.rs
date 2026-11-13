@@ -75,7 +75,9 @@ impl IndexedArchive {
     }
     fn reconcile(&mut self)->Result<Recovery,Error>{
         // Re-verify Parquet SHA/typed row readback before promoting any ID.
-        self.archive.verify_all().map_err(archive_error)?;
+        // Check each decoded row against its per-event SHA in the sealed manifest,
+        // not merely the partition-level Parquet checksum.
+        self.archive.visit_verified_rows(|_,_,_|Ok(())).map_err(archive_error)?;
         let manifests=self.manifests()?;
         let real=manifests.iter().map(|(s,_,_)|s.clone()).collect::<BTreeSet<_>>();
         // A database-only "committed" marker must never invent source data.
@@ -163,6 +165,18 @@ mod tests {
         let b=IndexedArchive::open(root(&t)).unwrap();
         assert_eq!(b.recovery().already_indexed,1);
         assert_eq!(b.recovery().replayed,0);
+    }
+    #[test]fn corrupted_sealed_event_identity_is_not_promoted(){
+        let t=TempDir::new().unwrap();let path=root(&t);
+        let mut a=IndexedArchive::open(&path).unwrap();
+        a.publish(scope(),&[event("original",1)]).unwrap();
+        drop(a);
+        let manifests=path.join("sealed/manifests");
+        let file=fs::read_dir(manifests).unwrap().next().unwrap().unwrap().path();
+        let mut data:serde_json::Value=serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        data["events"][0]["row_sha256"]=serde_json::Value::String("f".repeat(64));
+        fs::write(file,serde_json::to_vec(&data).unwrap()).unwrap();
+        assert!(matches!(IndexedArchive::open(&path),Err(Error::Archive(_))));
     }
     #[test]fn unknown_root_and_orphan_index_fail_closed(){
         let t=TempDir::new().unwrap();let path=root(&t);
