@@ -176,6 +176,32 @@ impl BookIntegrity {
         }
         self.class
     }
+    /// Convert already reconstructed observed L2 into the canonical
+    /// execution-engine observation without upgrading provenance.
+    /// The historical source pipeline currently lacks independent complete
+    /// subscription certification: this therefore exports UNVERIFIED depth.
+    pub fn modeled_observation(&self,e:&BookEvidence)
+        ->Option<phoenix_sim::historical::FractionalBook>{
+        use phoenix_sim::historical::{DepthQuality,FractionalBook,FractionalLevel};
+        if e.market_ticker!=self.market{return None;}
+        let snapshot_sha256=self.snap_hash.clone()?;
+        let session_id=self.connection.clone()?;
+        let received_ns=self.last?;
+        let exchange_ns=self.event_ns?;
+        let levels=|side:Side|self.book.bids_fp(side)
+            .into_iter().map(|(price,quantity_hundredths)|FractionalLevel{
+                price,quantity_hundredths}).collect::<Vec<_>>();
+        Some(FractionalBook{
+            market:self.market.clone(),received_ns,exchange_ns,
+            session_id,snapshot_sha256,yes_bids:levels(Side::Yes),
+            no_bids:levels(Side::No),
+            quality:if e.modeled_execution_eligible&&
+                e.complete_subscription_history_verified&&
+                !e.source_clock_uncertain{
+                DepthQuality::VerifiedSourceWindow
+            }else{DepthQuality::Unverified},
+        })
+    }
     /// The source reader's summaries span ALL tickers in the bounded input,
     /// but only a selected window. They cannot certify a whole subscription.
     pub fn evidence(&self,runs:&[ChannelRun],asof_ns:i64,
@@ -402,6 +428,21 @@ mod tests{
             integrity.best_bid_fp(Side::Yes));
         // A second application would produce DuplicateSequence for deltas;
         // replay consumes the recorded outcome instead of applying twice.
+    }
+    #[test]fn raw_historical_book_export_never_promotes_source_to_verified_liquidity(){
+        use phoenix_sim::historical::DepthQuality;
+        let snapshot=r#"{"type":"orderbook_snapshot","sid":1,"seq":1,
+            "sending_ts_ms":1000,"msg":{"market_ticker":"M","clock":1,
+            "yes_dollars_fp":[["0.4000","1.25"]],
+            "no_dollars_fp":[["0.5000","1.00"]]}}"#;
+        let (e,d)=row(snapshot,1_100_000_000,1,1,"conn");
+        let mut integrity=BookIntegrity::new("M");
+        integrity.observe(&e,&d);
+        let evidence=integrity.evidence(&[],1_100_000_000,
+            1_000_000_000,1,None);
+        let observed=integrity.modeled_observation(&evidence).unwrap();
+        assert_eq!(observed.quality,DepthQuality::Unverified);
+        assert_eq!(observed.yes_bids[0].quantity_hundredths,125);
     }
     #[test]fn manifest_rankings_do_not_claim_certified_availability(){
         let data=[Candidate{market:"M".into(),
