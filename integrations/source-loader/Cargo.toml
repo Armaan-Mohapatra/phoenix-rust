@@ -9,6 +9,7 @@ edition="2021"
 [dependencies]
 phoenix-kalshi-wire={path="../kalshi-wire"}
 phoenix-domain={path="../../crates/domain"}
+phoenix-sim={path="../../crates/sim"}
 arrow-array="53.4.0"
 parquet={version="53.4.0",default-features=false,features=["arrow","zstd"]}
 bytes="1"
