@@ -398,7 +398,7 @@ mod tests{
             r#"{"price":"123.12345678","quantity":"2","aggressor":"sell"}"#,1);
         let result=normalize_records(&[trade],&schema,
             &contract(&schema,1)).unwrap();
-        assert!(matches!(result[0].event,PerpsEvent::Trade{
+        assert!(matches!(&result[0].event,PerpsEvent::Trade{
             price_1e8:12312345678,quantity_base_1e8:300000000,..}));
         let depth=row("depth",r#"{"bids":[["100","0.00000001"]],
             "asks":[["101","1"]]}"#,2);
