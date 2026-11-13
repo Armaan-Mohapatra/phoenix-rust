@@ -1,0 +1,29 @@
+# Phoenix Rust Phase 5 — contract economics and independent settlement checkpoint
+
+Date: 2026-11-13. STATUS: CODE_WRITTEN_UNTESTED. Absolutely no Cargo/Rust compilation, CI, Codex, original ZIP runs, primary-provider calls, public Kalshi GET, exchange orders, collector, active database or production modification in this phase.
+
+GitHub lineage: repo Armaan-Mohapatra/phoenix-rust PRIVATE; exact verified Phase 4 base 9fee6da64cb38d2ec0f19c9829019b412d9f64fe, isolated codex/phase5-contract-settlement-v1, draft PR #26 based on draft PR #25. Last implementation head before checkpoint c3c676fc6b2f52c64832b3d3a77ee9a5a2569f7d. Checkpoint commit is its direct child; exact final SHA verifiable via PR #26.
+
+Source changes: integrations/contract-economics/Cargo.toml, integrations/contract-economics/src/lib.rs, integrations/contract-economics/src/primary.rs, integrations/kalshi-read-only/Cargo.toml, integrations/kalshi-read-only/src/lib.rs, docs/PHASE5_CONTRACT_ECONOMICS_AND_EVIDENCE.md, this checkpoint.
+
+Components: Effective-dated ContractRegistry with ticker, market identity, event/series, binary payoff, effective/published/observed rule revision, source IDs/SHA, explicit 1Hz opening/closing index windows and tie decision. Unsupported/void/scalar/cancelled, future-dated or unknown rules are blocked.
+
+FeeRegistry: effective-dated maker/taker series-specific schedules, exact domain FeeRate price-quadratic or flat unit formula, per-fill versus per-price-level rounding and documented minimum/maximum. Missing historical terms are UNKNOWN_FEE; zero fees are only valid if explicitly documented in an authoritative schedule. A charge_for_asof (charge_at) binds fee source and effective time into modeled accounting; absent fee or official final yields NULL modeled net P&L.
+
+Read-only official results: existing Kalshi client has bounded GET-only market lookup, fixed reviewed HTTPS base, 10s request timeout and shared client-level conservative minimum interval, exact market ID/ticker parser and pending/void/cancel/scalar gates. Retrieved timestamp is taken by the adapter at the actual GET, not caller supplied. A local synthetic response is NOT a verified official final; only actual approved market GET path can set the private provenance marker. Revised and opposing official results are conflict-classified, not silently overwritten.
+
+Primary CF BRTI infrastructure: optional local authorized JSON import in exact value_1e8 integer strings, per-import raw SHA and canonical tick SHA, 1Hz timestamp and revision metadata, duplicate/float/coverage rejection. Existing settlement::compare_window_averages verifies exact 60 ticks in each configured historical pilot window, with checked precision and tie behavior. An injection-controlled PrimaryProvenanceVerifier must independently authenticate origin before an independent tier is even possible; none is connected, configured or trusted at this checkpoint. No credential, licensed tick archive or derived claim promoted to primary proof.
+
+Pilot windows supplied for future verification: KXBTC15M-26OCT241900-00, opening 2026-10-24T22:44:00Z–22:45:00Z, closing 2026-10-24T22:59:00Z–23:00:00Z. These are research inputs and not a substitute for an authenticated historical rule or fee schedule. NO actual historical market contract/rule record was loaded into registry. Actual Kalshi official market_id schema compatibility and missing primary CF licensing entitlement remain separate blockers.
+
+Evidence tiers: UnknownPending, ArchivedPaper, SourceDerivedProvisional, FreshOfficial, IndependentCorroborated, ConflictingInvalid. The independently corroborated tier is conditional on trusted external verifier plus same-market official result, verified primary hash/revision/window and exact winner. Even that tier is NOT actual exchange execution. Existing domain::BinaryFinal remains protective and never automatically upgrades its independent tier from a mere second source label.
+
+Authored tests, NOT RUN: historical rules overlap/future/unsupported; maker/taker/effective fee and exact rounding/overflow, empty historical data, complete 1Hz window and missing/revised/duplicated primary, authenticated-vs-synthetic official separation, cancel/void/scalar, opposing official revisions, archival paper no-promotion and fee/settlement-accounting NULL semantics. No tests or CI executed.
+
+Static review: dependency graph reuses domain, settlement and existing kalshi-read-only; new crate is separate standalone integration as in existing layout. Source-only review corrected accidental PartialEq demand for a structured Result fixture, source-observation vs tick timing, and caller-supplied official retrieval clock; compilation and cross-platform behavior remain unverified. Cargo workspace/standalone package enumeration must be checked in final local validation.
+
+Deferred commands (NOT RUN): cargo test --manifest-path integrations/contract-economics/Cargo.toml --all-targets; cargo test --manifest-path integrations/kalshi-read-only/Cargo.toml --all-targets; cargo test -p phoenix-domain; cargo test -p phoenix-settlement; Clippy on both edited integration crates. Mock-only calls must be substituted for any external live service during tests.
+
+Release blockers unchanged: exact historical fee schedule source unknown; authoritative historical rule version unavailable; fresh official Kalshi final absent; independent CF Benchmarks historical series not authorized/available; original Rust full source event replay unexecuted; original source initial L2 and executable book unverified; no historical after-cost trading performance proof.
+
+All Phase 3/4 branches and PRs preserved, nothing merged or deployed, no paid GitHub Actions. Stop after Phase 5; no Phase 6 work authorized.
