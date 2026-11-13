@@ -1,0 +1,21 @@
+name: Disk-backed research event identity index tests
+on:
+  push:
+    branches: [codex/disk-id-index-v1]
+    paths: ['integrations/disk-identity/**','.github/workflows/disk-identity.yml']
+  pull_request:
+    paths: ['integrations/disk-identity/**','.github/workflows/disk-identity.yml']
+permissions:
+  contents: read
+jobs:
+  index:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test bounded ACID duplicate-index and restart recovery
+        run: cargo test --manifest-path integrations/disk-identity/Cargo.toml
