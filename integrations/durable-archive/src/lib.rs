@@ -632,6 +632,32 @@ mod external_manifest_paging_tests {
             Err(Error::CapacityExceeded)));
     }
     #[test]
+    fn existing_v1_sealed_archive_is_read_unchanged_in_disk_mode(){
+        let t=TempDir::new().unwrap();let root=t.path().join("research");
+        let mut legacy=Archive::open(&root).unwrap();
+        let id=legacy.publish(scope(),&[row("legacy:1",1)])
+            .unwrap().partition_id.unwrap();
+        drop(legacy);
+        let manifest=manifest_path(&root,&id);
+        let original=fs::read(&manifest).unwrap();
+        // Storage v1 remains readable without rewriting its manifests.
+        let external=Archive::open_external_index(&root).unwrap();
+        assert_eq!(external.committed_partitions(),1);
+        assert_eq!(external.indexed_events(),0);
+        assert_eq!(external.verify_all().unwrap(),1);
+        assert_eq!(fs::read(&manifest).unwrap(),original);
+    }
+    #[test]
+    fn invalid_external_cap_cannot_initialize_research_output(){
+        let t=TempDir::new().unwrap();let root=t.path().join("new");
+        assert!(matches!(Archive::open_external_index_with_limit(&root,0),
+            Err(Error::CapacityExceeded)));
+        assert!(!root.exists());
+        assert!(matches!(Archive::open_external_index_with_limit(
+            &root,MAX_EXTERNAL_PARTITIONS+1),Err(Error::CapacityExceeded)));
+        assert!(!root.exists());
+    }
+    #[test]
     fn lazy_manifest_validation_detects_tampering(){
         let t=TempDir::new().unwrap();let root=t.path().join("research");
         let mut a=Archive::open_external_index(&root).unwrap();
