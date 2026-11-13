@@ -69,6 +69,12 @@ impl BookIntegrity {
             clock_uncertain:false,class:BookClass::UnknownInitialization,
         }
     }
+    pub fn best_bid_fp(&self,side:Side)->Option<(phoenix_domain::Price,u64)>{
+        self.book.best_bid_fp(side)
+    }
+    pub fn best_ask_fp(&self,side:Side)->Option<(phoenix_domain::Price,u64)>{
+        self.book.best_ask_fp(side)
+    }
     /// Source event is already SHA-checked, typed and sorted by receipt time.
     /// Return a classification, not an order fill or verified executable book.
     pub fn observe(&mut self,e:&CapturedMessage,d:&ArchivedDecoded)->BookClass{
@@ -103,6 +109,9 @@ impl BookIntegrity {
                 if self.connection.as_deref().is_some_and(|v|
                     v!=e.connection_id.as_str())||self.sid.is_some_and(|v|v!=x.sid){
                     self.reconnects+=1;
+                    // Trigger the existing forensic engine's session reset;
+                    // do not leave last session's visible bids behind.
+                    let _=self.book.apply(e,d);
                     self.class=BookClass::ReconnectUnverified;
                     self.connection=None;
                     self.sid=None;
@@ -288,6 +297,78 @@ mod tests{
         let state=book.evidence(&runs,1_100_000_000,1_000_000_000,1,None);
         assert_eq!(state.classification,BookClass::SequenceGap);
         assert!(!state.modeled_execution_eligible);
+    }
+    #[test]fn fractional_l2_updates_remain_exact_without_rounding(){
+        let snapshot=r#"{"type":"orderbook_snapshot","sid":1,"seq":1,
+          "sending_ts_ms":1000,"msg":{"market_ticker":"M","clock":1,
+          "yes_dollars_fp":[["0.4000","1.25"]],
+          "no_dollars_fp":[["0.5000","1.00"]]}}"#;
+        let delta=r#"{"type":"orderbook_delta","sid":1,"seq":2,
+          "sending_ts_ms":1100,"msg":{"market_ticker":"M","clock":2,
+          "side":"yes","price_dollars":"0.4000","delta_fp":"-0.25"}}"#;
+        let (a,b)=row(snapshot,1_100_000_000,1,1,"conn");
+        let (c,d)=row(delta,1_200_000_000,1,2,"conn");
+        let mut state=BookIntegrity::new("M");
+        state.observe(&a,&b);state.observe(&c,&d);
+        let top=state.best_bid_fp(Side::Yes).unwrap();
+        assert_eq!(top.1,100);
+        assert_eq!(top.0.ticks(),4000);
+        assert!(!state.evidence(&[],1_200_000_000,100_000_000,1,None)
+            .modeled_execution_eligible);
+    }
+    #[test]fn new_connection_needs_snapshot_to_resume_books(){
+        let snapshot=r#"{"type":"orderbook_snapshot","sid":1,"seq":1,
+          "sending_ts_ms":1000,"msg":{"market_ticker":"M","clock":1,
+          "yes_dollars_fp":[["0.4000","1.25"]],
+          "no_dollars_fp":[["0.5000","1.00"]]}}"#;
+        let delta=r#"{"type":"orderbook_delta","sid":2,"seq":3,
+          "sending_ts_ms":1100,"msg":{"market_ticker":"M","clock":2,
+          "side":"yes","price_dollars":"0.4000","delta_fp":"0.25"}}"#;
+        let (a,b)=row(snapshot,1_100_000_000,1,1,"connA");
+        let (c,d)=row(delta,1_200_000_000,2,3,"connB");
+        let mut state=BookIntegrity::new("M");
+        state.observe(&a,&b);
+        assert_eq!(state.observe(&c,&d),BookClass::ReconnectUnverified);
+        assert_eq!(state.best_bid_fp(Side::Yes),None);
+        assert_eq!(state.evidence(&[],1_200_000_000,100_000_000,1,None)
+            .reconnects_without_resnapshot,1);
+    }
+    #[test]fn crossed_complementary_snapshot_is_invalid(){
+        let snapshot=r#"{"type":"orderbook_snapshot","sid":1,"seq":1,
+          "sending_ts_ms":1000,"msg":{"market_ticker":"M","clock":1,
+          "yes_dollars_fp":[["0.6000","1.00"]],
+          "no_dollars_fp":[["0.5000","1.00"]]}}"#;
+        let (a,b)=row(snapshot,1_100_000_000,1,1,"A");
+        let mut state=BookIntegrity::new("M");
+        assert_eq!(state.observe(&a,&b),BookClass::InvalidBook);
+    }
+    #[test]fn old_quotes_are_stale_not_executable(){
+        let snapshot=r#"{"type":"orderbook_snapshot","sid":1,"seq":1,
+          "sending_ts_ms":1000,"msg":{"market_ticker":"M","clock":1,
+          "yes_dollars_fp":[["0.4000","1.00"]],
+          "no_dollars_fp":[["0.5000","1.00"]]}}"#;
+        let (a,b)=row(snapshot,1_100_000_000,1,1,"A");
+        let mut state=BookIntegrity::new("M");state.observe(&a,&b);
+        let result=state.evidence(&[],3_000_000_000,100_000_000,1,None);
+        assert_eq!(result.classification,BookClass::StaleBook);
+        assert!(!result.modeled_execution_eligible);
+    }
+    #[test]fn duplicate_shared_channel_messages_remain_partial(){
+        let snapshot=r#"{"type":"orderbook_snapshot","sid":1,"seq":1,
+          "sending_ts_ms":1000,"msg":{"market_ticker":"M","clock":1,
+          "yes_dollars_fp":[["0.4000","1.00"]],
+          "no_dollars_fp":[["0.5000","1.00"]]}}"#;
+        let (a,b)=row(snapshot,1_100_000_000,1,1,"conn");
+        let mut state=BookIntegrity::new("M");state.observe(&a,&b);
+        let run=[ChannelRun{connection_id:"conn".into(),sid:1,
+            channel:"orderbook_delta".into(),observed_messages:2,
+            first_received_ns:1,last_received_ns:2,first_seq:1,
+            last_seq:1,missing_in_selected_window:0,duplicates:1,
+            regressions:0,complete_subscription_history_verified:false}];
+        let result=state.evidence(&run,1_100_000_000,1_000_000_000,1,None);
+        assert_eq!(result.channel_quality,
+            ChannelQuality::ObservedWindowDuplicatesOrRegressions);
+        assert!(!result.complete_subscription_history_verified);
     }
     #[test]fn manifest_rankings_do_not_claim_certified_availability(){
         let data=[Candidate{market:"M".into(),
