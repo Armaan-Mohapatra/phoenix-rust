@@ -97,7 +97,10 @@ impl BookIntegrity {
         }
         match &d.message{
             Message::Snapshot(s)=>{
-                if s.market!=self.market{return BookClass::InvalidBook;}
+                if s.market!=self.market{
+                    self.last_apply=Some(Err(forensic::Error::WrongMarket));
+                    self.class=BookClass::InvalidBook;return self.class;
+                }
                 let is_resnapshot=self.snapshots>0;
                 let applied=self.book.apply(e,d);
                 self.last_apply=Some(applied.clone());
