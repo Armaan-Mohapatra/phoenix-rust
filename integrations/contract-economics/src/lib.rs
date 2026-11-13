@@ -657,7 +657,7 @@ mod tests{
             "status":"settled","result":"yes"}}"#;
         let o=phoenix_kalshi_read_only::parse_official_market("KXBTC-TEST",raw,20)
             .unwrap();
-        assert_eq!(corroborate_primary(&rule(),&o,&p,&TrustedForFixture),
-            Err(Error::UnknownOfficial));
+        assert!(matches!(corroborate_primary(&rule(),&o,&p,&TrustedForFixture),
+            Err(Error::UnknownOfficial)));
     }
 }
