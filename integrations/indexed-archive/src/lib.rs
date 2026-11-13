@@ -1,6 +1,8 @@
 //! Isolated research-only integration: sealed Parquet first, ACID index second.
 //! No production collector, live SQLite/WAL or exchange endpoints.
-use phoenix_disk_identity::Index;
+use phoenix_disk_identity::{Index,IndexFault};
+use phoenix_durable_archive::{Fault as ArchiveFault,Durability};
+use phoenix_durable_archive::recovery::{RecoverySummary,PublicationState,Assurance};
 use phoenix_durable_archive::{Archive,EventRow,PublishResult,SealedPartition,SourceScope,MAX_EXTERNAL_PARTITIONS,MAX_MANIFEST_BYTES};
 use sha2::{Digest,Sha256};
 use std::{fs::{self,File,OpenOptions},io::{Read,Write},path::{Path,PathBuf}};
@@ -14,10 +16,41 @@ fn archive_error(e:impl std::fmt::Debug)->Error{Error::Archive(format!("{e:?}"))
 fn index_error(e:impl std::fmt::Debug)->Error{Error::Index(format!("{e:?}"))}
 fn hash(bytes:&[u8])->String{format!("{:x}",Sha256::digest(bytes))}
 fn sha_valid(s:&str)->bool{s.len()==64&&s.bytes().all(|c|c.is_ascii_hexdigit())}
+
+fn reject_reparse(path:&Path)->Result<(),Error>{
+    if path.components().any(|p|matches!(p,std::path::Component::ParentDir)){
+        return Err(Error::UnsafeRoot);
+    }
+    for part in path.ancestors(){
+        match fs::symlink_metadata(part){
+            Ok(meta)=>{
+                if meta.file_type().is_symlink(){return Err(Error::UnsafeRoot);}
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    if meta.file_attributes()&0x400!=0{return Err(Error::UnsafeRoot);}
+                }
+            },
+            Err(e) if e.kind()==std::io::ErrorKind::NotFound=>{},
+            Err(e)=>return Err(io(e)),
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
-pub enum Fault{None,AfterSealedManifest,AfterIndexCommit}
+pub enum Fault{
+    None,AfterSealedManifest,AfterIndexCommit,BeforeIndexTransaction,
+    AfterRowsBeforeMarker,AfterMarkerBeforeCommit,
+    AfterIndexCommitBeforeAcknowledgement,
+}
 #[derive(Debug,Clone,PartialEq,Eq,Default)]
-pub struct Recovery{pub sealed:usize,pub replayed:usize,pub already_indexed:usize,pub event_references:usize}
+pub struct Recovery{
+    pub sealed:usize,pub replayed:usize,pub already_indexed:usize,
+    pub event_references:usize,pub observed_duplicates:usize,
+    pub sample_partition_hashes:Vec<String>,
+    pub sample_source_manifest_hashes:Vec<String>,
+}
 pub struct IndexedArchive{root:PathBuf,archive:Archive,index:Index,poisoned:bool,recovery:Recovery}
 impl IndexedArchive {
     pub fn open(path:impl AsRef<Path>)->Result<Self,Error>{
@@ -29,6 +62,13 @@ impl IndexedArchive {
             return Err(Error::InvalidManifest);
         }
         let root=path.as_ref();
+        if root.components().any(|p|{
+            let n=p.as_os_str().to_string_lossy();
+            ["TradingNextData","KalshiData","KalshiRuntime","paper15m_runtime"]
+                .iter().any(|protected|n.eq_ignore_ascii_case(protected))
+        }){return Err(Error::UnsafeRoot);}
+        reject_reparse(root)?;
+        reject_reparse(&root.join(MARKER))?;
         if root.exists(){
             if fs::read(root.join(MARKER)).map_err(|_|Error::UnsafeRoot)?!=MAGIC {
                 return Err(Error::UnsafeRoot);
@@ -50,6 +90,50 @@ impl IndexedArchive {
         Ok(this)
     }
     pub fn recovery(&self)->&Recovery{&self.recovery}
+    /// A bounded structured summary. Unknown data loss remains None; a clean
+    /// journal is not proof of complete upstream market-data capture.
+    pub fn recovery_summary(&self)->RecoverySummary{
+        let mut out=self.archive.recovery_summary();
+        out.sealed_partitions_found=self.recovery.sealed;
+        out.index_transactions_recovered=self.recovery.replayed;
+        out.already_indexed_partitions=self.recovery.already_indexed;
+        out.verified_event_references=self.recovery.event_references;
+        out.duplicate_event_identities=if self.recovery.observed_duplicates>0{
+            Some(self.recovery.observed_duplicates)
+        }else{None};
+        for id in &self.recovery.sample_partition_hashes{out.record_evidence(id);}
+        for id in &self.recovery.sample_source_manifest_hashes{
+            out.record_source_manifest(id);
+        }
+        out.inspection_complete=!self.poisoned;
+        out.publication_state=if self.poisoned{
+            out.manual_intervention_required=true;
+            out.errors.push("WRITER_POISONED_REOPEN_REQUIRED".into());
+            PublicationState::DurabilityUncertain
+        }else{PublicationState::FullyReconciled};
+        out.assurance=if self.poisoned{Assurance::Uncertain}
+        else if cfg!(windows){Assurance::FileSyncedDirectoryNotProven}
+        else{Assurance::FileAndDirectorySyncedSoftwareLevel};
+        out
+    }
+    pub fn recovery_report_json(&self)->Result<String,Error>{
+        serde_json::to_string_pretty(&self.recovery_summary()).map_err(io)
+    }
+    /// An open() failure can still be summarized without claiming that the
+    /// unexamined portion of an archive had zero issues.
+    pub fn failed_open_report(error:&Error)->RecoverySummary{
+        let category=match error{
+            Error::UnsafeRoot=>"UNSAFE_ROOT",
+            Error::InvalidManifest=>"CORRUPT_OR_UNSUPPORTED_MANIFEST",
+            Error::OrphanIndex(_)=>"PHANTOM_INDEX_MARKER",
+            Error::Archive(_)=>"ARCHIVE_EVIDENCE_FAILURE",
+            Error::Index(_)=>"INDEX_TRANSACTION_OR_SCHEMA_FAILURE",
+            Error::Io(_)=>"FILESYSTEM_FAILURE",
+            Error::Interrupted=>"INJECTED_INTERRUPTION",
+            Error::Poisoned=>"WRITER_POISONED",
+        };
+        RecoverySummary::empty().blocked(category)
+    }
     pub fn find(&self,id:&str)->Result<Option<String>,Error>{self.index.get(id).map_err(index_error)}
     /// Disk-backed, exclusive-cursor partition listing. At most 512 strings
     /// are returned, independent of the total archive history.
@@ -124,6 +208,14 @@ impl IndexedArchive {
             }else{
                 recovered.replayed+=1;
             }
+            if recovered.sample_partition_hashes.len()<8{
+                recovered.sample_partition_hashes.push(m.partition_id.clone());
+            }
+            if let Some(ref sha)=m.scope.source_manifest_sha256{
+                if recovered.sample_source_manifest_hashes.len()<8{
+                    recovered.sample_source_manifest_hashes.push(sha.clone());
+                }
+            }
         }
         if recovered.sealed!=self.archive.committed_partitions(){
             return Err(Error::InvalidManifest);
@@ -134,7 +226,7 @@ impl IndexedArchive {
     /// Incrementally promote only the newly sealed partition. Cold opens still
     /// perform full archive and index reconciliation; appends must not perform
     /// an O(total historical rows) validation on every publication.
-    fn commit_just_sealed(&mut self,id:&str)->Result<(),Error>{
+    fn commit_just_sealed(&mut self,id:&str,fault:IndexFault)->Result<(),Error>{
         if !sha_valid(id){return Err(Error::InvalidManifest);}
         let path=self.root.join("sealed/manifests").join(format!("{id}.json"));
         if fs::metadata(&path).map_err(io)?.len()>MAX_MANIFEST_BYTES{
@@ -172,43 +264,84 @@ impl IndexedArchive {
         }
         let events=verified.iter().map(|(id,digest)|(id.as_str(),digest.as_str()))
             .collect::<Vec<_>>();
-        let outcome=self.index.commit_verified_partition(
-            id,&hash(&manifest_bytes),&events).map_err(index_error)?;
+        let outcome=self.index.commit_verified_partition_fault(
+            id,&hash(&manifest_bytes),&events,fault).map_err(index_error)?;
         self.recovery.sealed+=1;
         self.recovery.event_references+=events.len();
         if outcome.already_committed{self.recovery.already_indexed+=1;}
         else{self.recovery.replayed+=1;}
+        if self.recovery.sample_partition_hashes.len()<8{
+            self.recovery.sample_partition_hashes.push(id.to_owned());
+        }
+        if let Some(ref sha)=persisted.scope.source_manifest_sha256{
+            if self.recovery.sample_source_manifest_hashes.len()<8{
+                self.recovery.sample_source_manifest_hashes.push(sha.clone());
+            }
+        }
         Ok(())
     }
 
     pub fn publish(&mut self,scope:SourceScope,rows:&[EventRow])
-        ->Result<PublishResult,Error>{self.publish_fault(scope,rows,Fault::None)}
-    pub fn publish_fault(&mut self,scope:SourceScope,rows:&[EventRow],fault:Fault)
         ->Result<PublishResult,Error>{
+        self.publish_with_faults(scope,rows,Fault::None,ArchiveFault::None)
+    }
+    pub fn publish_fault(&mut self,scope:SourceScope,rows:&[EventRow],
+        fault:Fault)->Result<PublishResult,Error>{
+        self.publish_with_faults(scope,rows,fault,ArchiveFault::None)
+    }
+    /// Source-stage crash injection, not a production order endpoint.
+    pub fn publish_archive_fault(&mut self,scope:SourceScope,
+        rows:&[EventRow],fault:ArchiveFault)->Result<PublishResult,Error>{
+        self.publish_with_faults(scope,rows,Fault::None,fault)
+    }
+    fn publish_with_faults(&mut self,scope:SourceScope,rows:&[EventRow],
+        fault:Fault,archive_fault:ArchiveFault)->Result<PublishResult,Error>{
         if self.poisoned{return Err(Error::Poisoned);}
-        // This redb database has already been reconciled from all verified
-        // sealed manifests during open. It is now the authoritative duplicate
-        // lookup, so archive publication does not cache every historical ID.
         let disk_index=&self.index;
-        let result=self.archive.publish_with_external_lookup(scope,rows,|id|{
-            disk_index.get(id).map_err(|err|
-                phoenix_durable_archive::Error::ExternalIndex(format!("{err:?}")))
-        }).map_err(archive_error)?;
+        let result=self.archive.publish_with_external_lookup_fault(
+            scope,rows,|id|disk_index.get(id).map_err(|err|
+                phoenix_durable_archive::Error::ExternalIndex(format!("{err:?}"))),
+            archive_fault);
+        let mut result=match result{
+            Ok(v)=>v,
+            Err(e)=>{
+                // A failed publication may have passed the sealed-manifest
+                // boundary. Never allow a second publication without a
+                // recovered, fully verified cold reopen.
+                if !matches!(&e,phoenix_durable_archive::Error::InvalidInput|
+                    phoenix_durable_archive::Error::DuplicateConflict(_)|
+                    phoenix_durable_archive::Error::CapacityExceeded){
+                    self.poisoned=true;
+                }
+                return Err(archive_error(e));
+            }
+        };
+        self.recovery.observed_duplicates=self.recovery.observed_duplicates
+            .saturating_add(result.duplicates);
         if result.partition_id.is_none(){return Ok(result);}
-        if fault==Fault::AfterSealedManifest {
+        if fault==Fault::AfterSealedManifest{
             self.poisoned=true;return Err(Error::Interrupted);
         }
-        // Reconcile exactly the newly sealed manifest; reopening still
-        // performs full evidence verification and repairs missing transactions.
-        if let Err(err)=self.commit_just_sealed(result.partition_id.as_deref().unwrap()){
+        let index_fault=match fault{
+            Fault::BeforeIndexTransaction=>IndexFault::RejectTransaction,
+            Fault::AfterRowsBeforeMarker=>IndexFault::AfterRowInsertBeforeMarker,
+            Fault::AfterMarkerBeforeCommit=>IndexFault::AfterMarkerBeforeCommit,
+            Fault::AfterIndexCommitBeforeAcknowledgement=>
+                IndexFault::AfterCommitBeforeAcknowledgement,
+            _=>IndexFault::None,
+        };
+        if let Err(err)=self.commit_just_sealed(
+            result.partition_id.as_deref().unwrap(),index_fault){
             self.poisoned=true;
             return Err(err);
         }
         if fault==Fault::AfterIndexCommit{
             self.poisoned=true;return Err(Error::Interrupted);
         }
+        result.publication_state=PublicationState::FullyReconciled;
         Ok(result)
     }
+
 }
 
 #[cfg(test)]
@@ -383,6 +516,120 @@ mod tests {
         assert_eq!(all.len(),13);
         assert!(all.windows(2).all(|pair|pair[0]<pair[1]));
         assert_eq!(b.recovery().already_indexed,13);
+    }
+    #[test]
+    fn redb_interruption_points_recover_from_verified_sealed_manifests(){
+        let scenarios=[
+            Fault::BeforeIndexTransaction,
+            Fault::AfterRowsBeforeMarker,
+            Fault::AfterMarkerBeforeCommit,
+            Fault::AfterIndexCommitBeforeAcknowledgement,
+        ];
+        for fault in scenarios{
+            let t=TempDir::new().unwrap();
+            let root=root(&t);
+            let mut a=IndexedArchive::open(&root).unwrap();
+            assert!(a.publish_fault(scope(),&[event("phase2",1)],fault).is_err());
+            assert_eq!(a.recovery_summary().publication_state,
+                PublicationState::DurabilityUncertain);
+            assert!(a.recovery_summary().manual_intervention_required);
+            assert!(matches!(a.publish(scope(),&[event("later",2)]),
+                Err(Error::Poisoned)));
+            drop(a);
+            let mut b=IndexedArchive::open(&root).unwrap();
+            assert_eq!(b.recovery().sealed,1);
+            assert_eq!(b.recovery().event_references,1);
+            assert!(b.find("phase2").unwrap().is_some());
+            if fault==Fault::AfterIndexCommitBeforeAcknowledgement{
+                assert_eq!(b.recovery().already_indexed,1);
+            }else{
+                assert_eq!(b.recovery().replayed,1);
+            }
+            assert_eq!(b.publish(scope(),&[event("phase2",1)])
+                .unwrap().duplicates,1);
+        }
+    }
+    #[test]
+    fn source_seal_after_error_must_poison_writer_until_reopen(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let mut a=IndexedArchive::open(&root).unwrap();
+        assert!(a.publish_archive_fault(scope(),&[event("sealed",1)],
+            ArchiveFault::AfterManifestRename).is_err());
+        assert_eq!(a.recovery_summary().publication_state,
+            PublicationState::DurabilityUncertain);
+        assert!(matches!(a.publish(scope(),&[event("new",2)]),
+            Err(Error::Poisoned)));
+        drop(a);
+        let b=IndexedArchive::open(&root).unwrap();
+        assert_eq!(b.recovery().replayed,1);
+        assert!(b.find("sealed").unwrap().is_some());
+        assert!(!b.recovery_summary().manual_intervention_required);
+    }
+    #[test]
+    fn partial_recovery_does_not_erase_prior_sealed_history(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let mut a=IndexedArchive::open(&root).unwrap();
+        a.publish(scope(),&[event("first",1)]).unwrap();
+        a.publish(scope(),&[event("second",2)]).unwrap();
+        assert!(a.publish_fault(scope(),&[event("third",3)],
+            Fault::AfterSealedManifest).is_err());
+        drop(a);
+        let b=IndexedArchive::open(&root).unwrap();
+        assert_eq!(b.recovery().sealed,3);
+        assert_eq!(b.recovery().already_indexed,2);
+        assert_eq!(b.recovery().replayed,1);
+        assert!(b.find("first").unwrap().is_some());
+        assert!(b.find("second").unwrap().is_some());
+        assert!(b.find("third").unwrap().is_some());
+    }
+    #[test]
+    fn report_is_machine_readable_bounded_and_does_not_claim_no_loss(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let mut a=IndexedArchive::open(&root).unwrap();
+        a.publish(scope(),&[event("reported",1)]).unwrap();
+        let json=a.recovery_report_json().unwrap();
+        let report:RecoverySummary=serde_json::from_str(&json).unwrap();
+        assert_eq!(report.publication_state,PublicationState::FullyReconciled);
+        assert!(report.inspection_complete);
+        assert_eq!(report.sealed_partitions_found,1);
+        assert_eq!(report.missing_or_orphaned_records,None);
+        assert_eq!(report.identity_conflicts,None);
+        assert_eq!(report.evidence_partition_sha256_samples.len(),1);
+        assert!(!json.contains("synthetic order payload"));
+    }
+    #[test]
+    fn failed_open_json_never_claims_completed_inspection_or_no_missing_data(){
+        let failed=IndexedArchive::failed_open_report(
+            &Error::OrphanIndex("a".repeat(64)));
+        assert_eq!(failed.publication_state,
+            PublicationState::CorruptOrInconsistent);
+        assert!(!failed.inspection_complete);
+        assert_eq!(failed.missing_or_orphaned_records,None);
+        assert!(failed.manual_intervention_required);
+        assert_eq!(failed.errors,vec!["PHANTOM_INDEX_MARKER"]);
+    }
+    #[test]
+    fn corrupt_startup_manifest_stays_on_disk_for_forensic_review(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let mut a=IndexedArchive::open(&root).unwrap();
+        a.publish(scope(),&[event("safe",1)]).unwrap();
+        drop(a);
+        let path=fs::read_dir(root.join("sealed/manifests")).unwrap()
+            .next().unwrap().unwrap().path();
+        fs::write(&path,b"{bad json").unwrap();
+        let before=fs::read(&path).unwrap();
+        assert!(IndexedArchive::open(&root).is_err());
+        assert_eq!(fs::read(&path).unwrap(),before);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn wrapper_rejects_symlink_before_creating_child_paths(){
+        use std::os::unix::fs::symlink;
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let archive=IndexedArchive::open(&root).unwrap();drop(archive);
+        let alias=t.path().join("linked-root");
+        symlink(&root,&alias).unwrap();
+        assert!(matches!(IndexedArchive::open(&alias),Err(Error::UnsafeRoot)));
     }
     #[test]fn unknown_root_and_orphan_index_fail_closed(){
         let t=TempDir::new().unwrap();let path=root(&t);

@@ -9,10 +9,13 @@ const CACHE_BYTES:usize=16*1024*1024;
 const MAX_EVENTS_PER_TRANSACTION:usize=256;
 const EVENTS:TableDefinition<&str,&str>=TableDefinition::new("event_ids_v1");
 const PARTITIONS:TableDefinition<&str,&str>=TableDefinition::new("sealed_partitions_v1");
+const META:TableDefinition<&str,&str>=TableDefinition::new("phoenix_index_metadata_v1");
+const FORMAT_VERSION:&str="1";
 
 #[derive(Debug,PartialEq,Eq)]
 pub enum Error {NotResearchPath,InvalidInput,CapacityExceeded,
-    ConflictingEvent(String),ConflictingPartition,Storage(String)}
+    ConflictingEvent(String),ConflictingPartition,UnsupportedFormat,
+    InjectedFault,Storage(String)}
 fn io(e:impl std::fmt::Display)->Error{Error::Storage(e.to_string())}
 fn sha_ok(s:&str)->bool{s.len()==64&&s.bytes().all(|x|x.is_ascii_hexdigit())}
 fn id_ok(s:&str)->bool{!s.is_empty()&&s.len()<=128&&
@@ -26,6 +29,36 @@ fn signature(events:&[(&str,&str)])->String{
     }
     format!("{:x}",h.finalize())
 }
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+pub enum IndexFault {
+    None,RejectTransaction,AfterRowInsertBeforeMarker,
+    AfterMarkerBeforeCommit,AfterCommitBeforeAcknowledgement,
+}
+fn reject_linked(path:&Path)->Result<(),Error>{
+    if path.components().any(|p|{
+        let n=p.as_os_str().to_string_lossy();
+        ["TradingNextData","KalshiData","KalshiRuntime","paper15m_runtime"]
+            .iter().any(|protected|n.eq_ignore_ascii_case(protected))
+    }){return Err(Error::NotResearchPath);}
+    if path.components().any(|p|matches!(p,std::path::Component::ParentDir)){
+        return Err(Error::NotResearchPath);
+    }
+    for component in path.ancestors(){
+        match fs::symlink_metadata(component){
+            Ok(meta)=>{
+                if meta.file_type().is_symlink(){return Err(Error::NotResearchPath);}
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    if meta.file_attributes()&0x400!=0{return Err(Error::NotResearchPath);}
+                }
+            },
+            Err(e) if e.kind()==std::io::ErrorKind::NotFound=>{},
+            Err(e)=>return Err(io(e)),
+        }
+    }
+    Ok(())
+}
 pub struct Index {root:PathBuf,db:Database}
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub struct ResultCount {pub inserted:usize,pub existing:usize,pub already_committed:bool}
@@ -34,6 +67,9 @@ impl Index {
     /// never auto-initialize production/source data paths.
     pub fn open(root:impl AsRef<Path>)->Result<Self,Error>{
         let root=root.as_ref();
+        reject_linked(root)?;
+        reject_linked(&root.join(MARKER))?;
+        reject_linked(&root.join("identity.redb"))?;
         if root.exists(){
             let content=fs::read(root.join(MARKER)).map_err(|_|Error::NotResearchPath)?;
             if content!=b"Phoenix offline research identity index v1\n"{
@@ -56,11 +92,22 @@ impl Index {
             let txn=db.begin_write().map_err(io)?;
             txn.open_table(EVENTS).map_err(io)?;
             txn.open_table(PARTITIONS).map_err(io)?;
+            {
+                let mut meta=txn.open_table(META).map_err(io)?;
+                let saved=meta.get("schema_version").map_err(io)?
+                    .map(|guard|guard.value().to_owned());
+                match saved.as_deref(){
+                    Some(value) if value==FORMAT_VERSION=>{},
+                    None=>{meta.insert("schema_version",FORMAT_VERSION).map_err(io)?;},
+                    Some(_)=>return Err(Error::UnsupportedFormat),
+                }
+            }
             txn.commit().map_err(io)?;
         }
         Ok(Self{root,db})
     }
     pub fn root(&self)->&Path{&self.root}
+    pub fn format_version(&self)->&'static str{FORMAT_VERSION}
     pub fn get(&self,id:&str)->Result<Option<String>,Error>{
         if !id_ok(id){return Err(Error::InvalidInput);}
         let tx=self.db.begin_read().map_err(io)?;
@@ -131,6 +178,14 @@ impl Index {
     /// and must replay sealed manifests after a crash before admitting new data.
     pub fn commit_verified_partition(&self,partition_sha:&str,
         manifest_sha:&str,events:&[(&str,&str)])->Result<ResultCount,Error>{
+        self.commit_verified_partition_fault(partition_sha,manifest_sha,events,
+            IndexFault::None)
+    }
+    /// Deterministic ACID fault injection. All faults except the last occur
+    /// before commit; dropping the write transaction must rollback mutations.
+    pub fn commit_verified_partition_fault(&self,partition_sha:&str,
+        manifest_sha:&str,events:&[(&str,&str)],fault:IndexFault)
+        ->Result<ResultCount,Error>{
         if !sha_ok(partition_sha)||!sha_ok(manifest_sha)||events.is_empty()||
             events.len()>MAX_EVENTS_PER_TRANSACTION{
             return Err(Error::InvalidInput);
@@ -144,6 +199,7 @@ impl Index {
             }
         }
         let encoded=format!("{manifest_sha}:{}",signature(events));
+        if fault==IndexFault::RejectTransaction{return Err(Error::InjectedFault);}
         let tx=self.db.begin_write().map_err(io)?;
         let existing={
             let table=tx.open_table(PARTITIONS).map_err(io)?;
@@ -167,14 +223,16 @@ impl Index {
                 inserted:0,existing:events.len(),already_committed:true
             });
         }
-        let mut new_count=0;let mut old_count=0;
+        let mut new_count=0;
         {
             let mut table=tx.open_table(EVENTS).map_err(io)?;
             for (id,digest) in events{
                 let old=table.get(*id).map_err(io)?.map(|v|v.value().to_owned());
                 match old {
-                    Some(x) if x!=*digest =>return Err(Error::ConflictingEvent((*id).into())),
-                    Some(_)=>old_count+=1,
+                    // An identical ID in another sealed partition is still
+                    // duplicate history. Only replay of the SAME existing
+                    // partition marker is idempotent, never a new marker.
+                    Some(_)=>return Err(Error::ConflictingEvent((*id).into())),
                     None=>{
                         table.insert(*id,*digest).map_err(io)?;
                         new_count+=1;
@@ -182,12 +240,21 @@ impl Index {
                 }
             }
         }
+        if fault==IndexFault::AfterRowInsertBeforeMarker{
+            return Err(Error::InjectedFault);
+        }
         {
             let mut table=tx.open_table(PARTITIONS).map_err(io)?;
             table.insert(partition_sha,encoded.as_str()).map_err(io)?;
         }
+        if fault==IndexFault::AfterMarkerBeforeCommit{
+            return Err(Error::InjectedFault);
+        }
         tx.commit().map_err(io)?;
-        Ok(ResultCount{inserted:new_count,existing:old_count,already_committed:false})
+        if fault==IndexFault::AfterCommitBeforeAcknowledgement{
+            return Err(Error::InjectedFault);
+        }
+        Ok(ResultCount{inserted:new_count,existing:0,already_committed:false})
     }
 }
 #[cfg(test)]
@@ -239,6 +306,74 @@ mod tests{
         assert_eq!(db.commit_verified_partition(&part,&manifest,&[
             ("BTC:1",digest.as_str())]),
             Err(Error::ConflictingEvent("BTC:1".into())));
+    }
+    #[test]
+    fn identical_event_id_cannot_be_committed_into_two_partitions(){
+        let t=TempDir::new().unwrap();let db=Index::open(root(&t)).unwrap();
+        let a=sha('a');let b=sha('b');let digest=sha('c');
+        let mh=sha('d');
+        db.commit_verified_partition(&a,&mh,&[("same",digest.as_str())]).unwrap();
+        assert_eq!(db.commit_verified_partition(&b,&mh,
+            &[("same",digest.as_str())]),
+            Err(Error::ConflictingEvent("same".into())));
+        assert!(!db.partition_indexed(&b).unwrap());
+        assert_eq!(db.get("same").unwrap(),Some(digest));
+    }
+    #[test]
+    fn interrupted_transaction_rolls_back_ids_and_partition_marker(){
+        for fault in [IndexFault::RejectTransaction,
+            IndexFault::AfterRowInsertBeforeMarker,
+            IndexFault::AfterMarkerBeforeCommit] {
+            let t=TempDir::new().unwrap();let root=root(&t);
+            let id=sha('a');let mh=sha('b');let digest=sha('c');
+            let index=Index::open(&root).unwrap();
+            let result=index.commit_verified_partition_fault(&id,&mh,
+                &[("event:a",digest.as_str())],fault);
+            assert_eq!(result,Err(Error::InjectedFault));
+            assert!(!index.partition_indexed(&id).unwrap());
+            assert_eq!(index.get("event:a").unwrap(),None);
+            drop(index);
+            let index=Index::open(&root).unwrap();
+            assert_eq!(index.get("event:a").unwrap(),None);
+            assert_eq!(index.commit_verified_partition(&id,&mh,
+                &[("event:a",digest.as_str())]).unwrap().inserted,1);
+        }
+    }
+    #[test]
+    fn committed_before_ack_is_idempotent_after_reopen(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let id=sha('a');let mh=sha('b');let digest=sha('c');
+        let index=Index::open(&root).unwrap();
+        assert_eq!(index.commit_verified_partition_fault(&id,&mh,
+            &[("event:a",digest.as_str())],
+            IndexFault::AfterCommitBeforeAcknowledgement),
+            Err(Error::InjectedFault));
+        drop(index);
+        let index=Index::open(&root).unwrap();
+        assert!(index.commit_verified_partition(&id,&mh,
+            &[("event:a",digest.as_str())]).unwrap().already_committed);
+    }
+    #[test]
+    fn schema_version_mismatch_is_explicitly_rejected(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let index=Index::open(&root).unwrap();
+        let tx=index.db.begin_write().unwrap();
+        {
+            let mut meta=tx.open_table(META).unwrap();
+            meta.insert("schema_version","999").unwrap();
+        }
+        tx.commit().unwrap();drop(index);
+        assert!(matches!(Index::open(&root),Err(Error::UnsupportedFormat)));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_to_an_existing_directory_is_not_a_research_index(){
+        use std::os::unix::fs::symlink;
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let index=Index::open(&root).unwrap();drop(index);
+        let alias=t.path().join("alias");
+        symlink(&root,&alias).unwrap();
+        assert!(matches!(Index::open(&alias),Err(Error::NotResearchPath)));
     }
     #[test]
     fn existing_unknown_directory_is_never_initialized(){
