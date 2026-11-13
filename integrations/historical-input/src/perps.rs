@@ -111,6 +111,48 @@ pub struct PartitionContract{
     pub expected_schema_sha256:String,
     pub expected_rows:usize,
 }
+#[derive(Debug,Clone,Serialize,Deserialize)]
+pub struct PerpsIndexedPartition{
+    pub venue:String,pub observed_symbol:String,pub member:String,
+    pub partition_sha256:String,pub schema_sha256:String,
+    pub first_received_ns:i64,pub last_received_ns:i64,
+    pub declared_rows:usize,
+}
+/// Select only manifest-indexed, finalized candidate partitions. No implicit
+/// directory walk or inference that index metadata proves original file bytes.
+pub fn select_indexed_partitions(index:&[PerpsIndexedPartition],
+    venue:&str,symbol:&str,start_ns:i64,end_ns:i64,
+    schema_sha256:&str)->Result<Vec<PerpsIndexedPartition>,Error>{
+    if index.len()>10_000||!valid_name(venue)||!valid_name(symbol)||
+        !valid_sha(schema_sha256)||start_ns<=0||end_ns<=start_ns{
+        return Err(Error::InvalidProvenance);
+    }
+    let mut seen=std::collections::BTreeSet::new();
+    let mut selected=Vec::new();
+    for p in index{
+        if !valid_name(&p.venue)||!valid_name(&p.observed_symbol)||
+            !valid_sha(&p.partition_sha256)||
+            !valid_sha(&p.schema_sha256)||p.member.is_empty()||
+            p.member.starts_with('/')||
+            p.member.split('/').any(|x|x=="."||x==".."||x.is_empty())||
+            p.first_received_ns<=0||
+            p.last_received_ns<p.first_received_ns||
+            p.declared_rows==0||p.declared_rows>MAX_EVENTS{
+            return Err(Error::InvalidProvenance);
+        }
+        if p.venue!=venue||p.observed_symbol!=symbol||
+            p.last_received_ns<start_ns||p.first_received_ns>end_ns{
+            continue;
+        }
+        if p.schema_sha256!=schema_sha256{return Err(Error::SourceMismatch);}
+        if !seen.insert(&p.member){return Err(Error::DuplicateConflict);}
+        selected.push(p.clone());
+        if selected.len()>32{return Err(Error::TooManyRows);}
+    }
+    selected.sort_by(|a,b|a.first_received_ns.cmp(&b.first_received_ns)
+        .then(a.member.cmp(&b.member)));
+    Ok(selected)
+}
 fn power10(n:u32)->Result<i128,Error>{
     10_i128.checked_pow(n).ok_or(Error::InvalidDecimal)
 }
@@ -369,6 +411,21 @@ mod tests{
         let b=row("trade",r#"{"price":"101","quantity":"1"}"#,1);
         assert!(matches!(normalize_records(&[a,b],&schema,&contract(&schema,2)),
             Err(Error::DuplicateConflict)));
+    }
+    #[test]fn indexed_finalized_partition_selection_is_bounded(){
+        let schema=s("VENUE_A");
+        let digest=schema.schema_sha256().unwrap();
+        let row=PerpsIndexedPartition{venue:"VENUE_A".into(),
+            observed_symbol:"BTCUSDT".into(),
+            member:"verified/finalized/segment_1.parquet".into(),
+            partition_sha256:"b".repeat(64),schema_sha256:digest.clone(),
+            first_received_ns:100,last_received_ns:200,declared_rows:2};
+        let selected=select_indexed_partitions(&[row.clone()],"VENUE_A",
+            "BTCUSDT",110,150,&digest).unwrap();
+        assert_eq!(selected.len(),1);
+        let mut invalid=row;invalid.member="../active.sqlite-wal".into();
+        assert!(select_indexed_partitions(&[invalid],"VENUE_A",
+            "BTCUSDT",110,150,&digest).is_err());
     }
     #[test]fn future_exchange_clock_and_missing_mark_are_rejected(){
         let schema=s("VENUE_A");
