@@ -24,6 +24,18 @@ function Canon([string]$Value){
 }
 $repo=Canon $RepoRoot
 $out=Canon $OutputDirectory
+# Even an explicitly supplied output path must never point into active source
+# or collector roots. These checks apply to the checkout and output only;
+# the optional source-ZIP input is intentionally allowed read-only.
+$protectedNames=@('TradingNextData','KalshiData','KalshiRuntime','paper15m_runtime')
+foreach($target in @($repo,$out)){
+    $parts=@($target -split '[\\/]' | Where-Object {$_})
+    foreach($protected in $protectedNames){
+        if($parts -contains $protected){
+            throw "Refusing validation writes inside protected production/source root: $target"
+        }
+    }
+}
 if(!(Test-Path -LiteralPath $repo -PathType Container) -or
    !(Test-Path -LiteralPath (Join-Path $repo 'Cargo.toml') -PathType Leaf)){
     throw 'RepoRoot is not a verified Rust research checkout'
