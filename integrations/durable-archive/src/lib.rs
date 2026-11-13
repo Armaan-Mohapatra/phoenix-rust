@@ -214,7 +214,8 @@ fn staged_write(path:&Path,bytes:&[u8],during:bool,pre_sync:bool,
     let mut file=OpenOptions::new().create_new(true).write(true).open(path)?;
     if fail_full{return Err(Error::InjectedStorage(StorageFailure::DiskFull));}
     if during{
-        file.write_all(&bytes[..bytes.len().max(2)/2.min(bytes.len().max(1))])?;
+        let take=(bytes.len()+1)/2;
+        file.write_all(&bytes[..take])?;
         return Err(Error::InjectedStorage(StorageFailure::InterruptedWrite));
     }
     file.write_all(bytes)?;
@@ -246,13 +247,17 @@ impl Archive {
         let root=root.as_ref();
         reject_reparse(root)?;
         if root.exists(){
-            if !root.join(MARKER).is_file(){return Err(Error::NotDedicatedResearchPath);}
+            reject_reparse(&root.join(MARKER))?;
+            if fs::read(root.join(MARKER))?!=b"Phoenix Rust research-only archive v1\n" {
+                return Err(Error::NotDedicatedResearchPath);
+            }
         }else{
             fs::create_dir(root)?;
             temp_file(&root.join(MARKER),b"Phoenix Rust research-only archive v1\n")?;
             sync_dir(root)?;
         }
         let root=fs::canonicalize(root)?;
+        reject_reparse(&root.join(".writer-lock"))?;
         let f=OpenOptions::new().create(true).read(true).write(true)
             .open(root.join(".writer-lock"))?;
         f.try_lock_exclusive().map_err(|_|Error::Busy)?;
