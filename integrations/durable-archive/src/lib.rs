@@ -10,6 +10,8 @@ use std::collections::{BTreeMap,HashMap};
 use std::fs::{self,File,OpenOptions};
 use std::io::{Read,Write};
 use std::path::{Path,PathBuf};
+pub mod recovery;
+use recovery::{Assurance,PublicationState,RecoverySummary,StorageFailure};
 
 pub const MAX_ROWS_PER_PARTITION:usize=256;
 pub const MAX_PARTITIONS:usize=2_000; // legacy RAM mode
@@ -26,7 +28,8 @@ pub enum Error {
     NotDedicatedResearchPath, Busy, InvalidInput, DuplicateConflict(String),
     CapacityExceeded, InvalidManifest, MissingCommittedPartition(String),
     DigestMismatch(String), ExistingUncommittedPartition,
-    ExternalIndex(String), InjectedFault,
+    ExternalIndex(String), UnsafePath, InjectedStorage(StorageFailure),
+    PublicationUncertain, InjectedFault,
 }
 impl From<std::io::Error> for Error {fn from(e:std::io::Error)->Self{Self::Io(e)}}
 impl From<serde_json::Error> for Error {fn from(e:serde_json::Error)->Self{Self::Json(e)}}
@@ -55,7 +58,7 @@ pub struct SealedPartition {
     pub min_sequence:u64,pub max_sequence:u64,
     pub scope:SourceScope,pub events:Vec<EventIdentity>,
 }
-#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize,Deserialize)]
 pub enum Durability {
     /// File contents synced; directory metadata flush is not portable on Windows.
     FileSyncedDirectoryNotProven,
@@ -72,8 +75,7 @@ pub struct RecoveryReport {
     pub quarantined_orphan_partitions:usize,
     pub committed_partitions:usize,
 }
-#[derive(Debug,Clone,Copy)]
-enum Fault {None,BeforeDataWrite,AfterDataSync,AfterDataRename,AfterManifestSync}
+pub use recovery::FaultPoint as Fault;
 
 pub struct Archive {
     root:PathBuf,
@@ -121,6 +123,8 @@ fn sync_dir(_path:&Path)->Result<bool,Error> {
     Ok(false)
 }
 fn safe_read(path:&Path,cap:u64)->Result<Vec<u8>,Error>{
+    reject_reparse(path)?;
+    if !fs::symlink_metadata(path)?.is_file(){return Err(Error::UnsafePath);}
     if fs::metadata(path)?.len()>cap{return Err(Error::CapacityExceeded);}
     let mut data=Vec::new();
     File::open(path)?.take(cap+1).read_to_end(&mut data)?;
@@ -128,10 +132,12 @@ fn safe_read(path:&Path,cap:u64)->Result<Vec<u8>,Error>{
     Ok(data)
 }
 fn temp_file(path:&Path,bytes:&[u8])->Result<(),Error> {
+    reject_reparse(path)?;
     let mut f=OpenOptions::new().create_new(true).write(true).open(path)?;
     f.write_all(bytes)?;f.sync_all()?;Ok(())
 }
 fn quarantine(root:&Path,p:&Path)->Result<(),Error>{
+    reject_reparse(root)?;reject_reparse(p)?;
     let name=p.file_name().ok_or(Error::InvalidInput)?;
     let target=root.join("quarantine").join(name);
     if target.exists(){return Err(Error::InvalidInput);}
@@ -161,6 +167,62 @@ fn read_sealed_manifest(root:&Path,path:&Path)->Result<SealedPartition,Error>{
     Ok(m)
 }
 
+
+fn reject_reparse(path:&Path)->Result<(),Error>{
+    if path.components().any(|p|matches!(p,std::path::Component::ParentDir)){
+        return Err(Error::UnsafePath);
+    }
+    for component in path.ancestors(){
+        match fs::symlink_metadata(component){
+            Ok(meta)=>{
+                if meta.file_type().is_symlink(){return Err(Error::UnsafePath);}
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    // FILE_ATTRIBUTE_REPARSE_POINT; also rejects junctions.
+                    if meta.file_attributes()&0x400!=0{return Err(Error::UnsafePath);}
+                }
+            },
+            Err(e) if e.kind()==std::io::ErrorKind::NotFound=>{},
+            Err(e)=>return Err(Error::Io(e)),
+        }
+    }
+    Ok(())
+}
+fn research_subdir(path:&Path)->Result<(),Error>{
+    reject_reparse(path)?;
+    if path.exists()&&!fs::symlink_metadata(path)?.is_dir(){
+        return Err(Error::UnsafePath);
+    }
+    Ok(())
+}
+fn sealed_link_publish(from:&Path,to:&Path)->Result<bool,Error>{
+    reject_reparse(from)?;reject_reparse(to)?;
+    if fs::symlink_metadata(to).is_ok(){
+        return Err(Error::ExistingUncommittedPartition);
+    }
+    // A hard-link creates the destination atomically *without overwriting*
+    // an existing file on same-volume NTFS/ext4. Unsupported filesystems
+    // fail CLOSED; never silently fall back to a copy/delete rename.
+    fs::hard_link(from,to)?;
+    fs::remove_file(from)?;
+    sync_dir(to.parent().ok_or(Error::InvalidInput)?)
+}
+fn staged_write(path:&Path,bytes:&[u8],during:bool,pre_sync:bool,
+    fail_sync:bool,fail_full:bool)->Result<(),Error>{
+    reject_reparse(path)?;
+    let mut file=OpenOptions::new().create_new(true).write(true).open(path)?;
+    if fail_full{return Err(Error::InjectedStorage(StorageFailure::DiskFull));}
+    if during{
+        file.write_all(&bytes[..bytes.len().max(2)/2.min(bytes.len().max(1))])?;
+        return Err(Error::InjectedStorage(StorageFailure::InterruptedWrite));
+    }
+    file.write_all(bytes)?;
+    if pre_sync{return Err(Error::InjectedFault);}
+    if fail_sync{return Err(Error::InjectedStorage(StorageFailure::SyncFailed));}
+    file.sync_all()?;Ok(())
+}
+
 impl Archive {
     /// A new root is allowed; an existing root MUST contain our research marker.
     /// A single exclusive OS advisory lock prevents concurrent publishers and
@@ -182,6 +244,7 @@ impl Archive {
         ->Result<Self,Error>{
         if cap==0||cap>MAX_EXTERNAL_PARTITIONS{return Err(Error::CapacityExceeded);}
         let root=root.as_ref();
+        reject_reparse(root)?;
         if root.exists(){
             if !root.join(MARKER).is_file(){return Err(Error::NotDedicatedResearchPath);}
         }else{
@@ -194,6 +257,7 @@ impl Archive {
             .open(root.join(".writer-lock"))?;
         f.try_lock_exclusive().map_err(|_|Error::Busy)?;
         for sub in ["manifests","partitions","pending","quarantine"] {
+            research_subdir(&root.join(sub))?;
             fs::create_dir_all(root.join(sub))?;
         }
         let mut archive=Self {root,_writer_lock:f,ids:HashMap::new(),
@@ -205,6 +269,21 @@ impl Archive {
         Ok(archive)
     }
     pub fn recovery(&self)->RecoveryReport {self.recovery}
+    /// Machine-readable evidence status. The archive itself does not certify
+    /// external redb reconciliation; the wrapper upgrades this state only
+    /// after successful index commit and sealed-row verification.
+    pub fn recovery_summary(&self)->RecoverySummary{
+        let mut r=RecoverySummary::empty();
+        r.sealed_partitions_found=self.committed_partitions();
+        r.quarantined_partial_files=self.recovery.quarantined_temp_files;
+        r.quarantined_unsealed_data_files=self.recovery.quarantined_orphan_partitions;
+        r.publication_state=if self.external_index_mode{
+            PublicationState::SealedNotIndexed
+        }else{PublicationState::FullyReconciled};
+        r.assurance=if cfg!(windows){Assurance::FileSyncedDirectoryNotProven}
+            else{Assurance::FileAndDirectorySyncedSoftwareLevel};
+        r
+    }
     pub fn indexed_events(&self)->usize {self.ids.len()}
     pub fn committed_partitions(&self)->usize {
         if self.external_index_mode{self.external_partition_count}
@@ -216,6 +295,7 @@ impl Archive {
             n=n.checked_add(1).ok_or(Error::CapacityExceeded)?;
             if n>self.external_partition_limit{return Err(Error::CapacityExceeded);}
             let item=item?;
+            reject_reparse(&item.path())?;
             if !item.file_type()?.is_file(){return Err(Error::InvalidManifest);}
             let m=read_sealed_manifest(&self.root,&item.path())?;
             if !self.external_index_mode{
@@ -240,14 +320,16 @@ impl Archive {
         let mut seen=0;
         for e in fs::read_dir(self.root.join("pending"))?{
             seen+=1;if seen>self.external_partition_limit{return Err(Error::CapacityExceeded);}
-            let e=e?;if !e.file_type()?.is_file(){return Err(Error::InvalidInput);}
+            let e=e?;reject_reparse(&e.path())?;
+            if !e.file_type()?.is_file(){return Err(Error::InvalidInput);}
             quarantine(&self.root,&e.path())?;
             self.recovery.quarantined_temp_files+=1;
         }
         seen=0;
         for e in fs::read_dir(self.root.join("partitions"))?{
             seen+=1;if seen>self.external_partition_limit{return Err(Error::CapacityExceeded);}
-            let e=e?;if !e.file_type()?.is_file(){return Err(Error::InvalidInput);}
+            let e=e?;reject_reparse(&e.path())?;
+            if !e.file_type()?.is_file(){return Err(Error::InvalidInput);}
             let stem=e.path().file_stem().and_then(|s|s.to_str())
                 .ok_or(Error::InvalidInput)?.to_owned();
             if !(if self.external_index_mode{
@@ -271,11 +353,20 @@ impl Archive {
     /// index. The callback must return authoritative event-ID -> row-digest
     /// mappings and must fail closed if the index cannot be queried.
     pub fn publish_with_external_lookup<F>(
-        &mut self,scope:SourceScope,events:&[EventRow],mut lookup:F
+        &mut self,scope:SourceScope,events:&[EventRow],lookup:F
+    )->Result<PublishResult,Error>
+    where F:FnMut(&str)->Result<Option<String>,Error>{
+        self.publish_with_external_lookup_fault(scope,events,lookup,Fault::None)
+    }
+    /// Fault injection is isolated to the research publisher; no retries.
+    /// A fault after manifest seal may have committed source data; reopen and
+    /// reconcile before any subsequent publication.
+    pub fn publish_with_external_lookup_fault<F>(
+        &mut self,scope:SourceScope,events:&[EventRow],mut lookup:F,fault:Fault
     )->Result<PublishResult,Error>
     where F:FnMut(&str)->Result<Option<String>,Error>{
         if !self.external_index_mode{return Err(Error::InvalidInput);}
-        self.publish_inner(scope,events,Fault::None,Some(&mut lookup))
+        self.publish_inner(scope,events,fault,Some(&mut lookup))
     }
     fn publish_inner(
         &mut self,scope:SourceScope,events:&[EventRow],fault:Fault,
@@ -344,16 +435,37 @@ impl Archive {
         if json.len() as u64>MAX_MANIFEST_BYTES{return Err(Error::CapacityExceeded);}
         if matches!(fault,Fault::BeforeDataWrite){return Err(Error::InjectedFault);}
         let pending_data=self.root.join("pending").join(format!("{id}.parquet.tmp"));
-        temp_file(&pending_data,&bytes)?;
-        if matches!(fault,Fault::AfterDataSync){return Err(Error::InjectedFault);}
-        fs::rename(&pending_data,data_path(&self.root,&id))?;
-        let durable_data_dir=sync_dir(&self.root.join("partitions"))?;
+        staged_write(&pending_data,&bytes,
+            matches!(fault,Fault::DuringDataWrite),
+            matches!(fault,Fault::AfterDataWriteBeforeSync),
+            matches!(fault,Fault::FailDataSync),
+            matches!(fault,Fault::DiskFullData))?;
+        if matches!(fault,Fault::AfterDataSync|Fault::BeforeDataRename){
+            return Err(Error::InjectedFault);
+        }
+        if matches!(fault,Fault::FailDataPublish){
+            return Err(Error::InjectedStorage(StorageFailure::RenameFailed));
+        }
+        let durable_data_dir=sealed_link_publish(&pending_data,
+            &data_path(&self.root,&id))?;
         if matches!(fault,Fault::AfterDataRename){return Err(Error::InjectedFault);}
         let pending_manifest=self.root.join("pending").join(format!("{id}.json.tmp"));
-        temp_file(&pending_manifest,&json)?;
-        if matches!(fault,Fault::AfterManifestSync){return Err(Error::InjectedFault);}
-        fs::rename(&pending_manifest,manifest_path(&self.root,&id))?;
-        let durable_manifest_dir=sync_dir(&self.root.join("manifests"))?;
+        staged_write(&pending_manifest,&json,
+            matches!(fault,Fault::DuringManifestWrite),
+            matches!(fault,Fault::AfterManifestWriteBeforeSync),
+            matches!(fault,Fault::FailManifestSync),
+            matches!(fault,Fault::DiskFullManifest))?;
+        if matches!(fault,Fault::AfterManifestSync|Fault::BeforeManifestRename){
+            return Err(Error::InjectedFault);
+        }
+        if matches!(fault,Fault::FailManifestPublish){
+            return Err(Error::InjectedStorage(StorageFailure::RenameFailed));
+        }
+        let durable_manifest_dir=sealed_link_publish(&pending_manifest,
+            &manifest_path(&self.root,&id))?;
+        if matches!(fault,Fault::AfterManifestRename){
+            return Err(Error::PublicationUncertain);
+        }
         if !self.external_index_mode{
             for r in &m.events {self.ids.insert(r.id.clone(),r.row_sha256.clone());}
         }
