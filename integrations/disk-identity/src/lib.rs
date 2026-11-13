@@ -301,6 +301,62 @@ mod tests{
             Err(Error::ConflictingEvent("BTC:1".into())));
     }
     #[test]
+    fn interrupted_transaction_rolls_back_ids_and_partition_marker(){
+        for fault in [IndexFault::RejectTransaction,
+            IndexFault::AfterRowInsertBeforeMarker,
+            IndexFault::AfterMarkerBeforeCommit] {
+            let t=TempDir::new().unwrap();let root=root(&t);
+            let id=sha('a');let mh=sha('b');let digest=sha('c');
+            let index=Index::open(&root).unwrap();
+            let result=index.commit_verified_partition_fault(&id,&mh,
+                &[("event:a",digest.as_str())],fault);
+            assert_eq!(result,Err(Error::InjectedFault));
+            assert!(!index.partition_indexed(&id).unwrap());
+            assert_eq!(index.get("event:a").unwrap(),None);
+            drop(index);
+            let index=Index::open(&root).unwrap();
+            assert_eq!(index.get("event:a").unwrap(),None);
+            assert_eq!(index.commit_verified_partition(&id,&mh,
+                &[("event:a",digest.as_str())]).unwrap().inserted,1);
+        }
+    }
+    #[test]
+    fn committed_before_ack_is_idempotent_after_reopen(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let id=sha('a');let mh=sha('b');let digest=sha('c');
+        let index=Index::open(&root).unwrap();
+        assert_eq!(index.commit_verified_partition_fault(&id,&mh,
+            &[("event:a",digest.as_str())],
+            IndexFault::AfterCommitBeforeAcknowledgement),
+            Err(Error::InjectedFault));
+        drop(index);
+        let index=Index::open(&root).unwrap();
+        assert!(index.commit_verified_partition(&id,&mh,
+            &[("event:a",digest.as_str())]).unwrap().already_committed);
+    }
+    #[test]
+    fn schema_version_mismatch_is_explicitly_rejected(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let index=Index::open(&root).unwrap();
+        let tx=index.db.begin_write().unwrap();
+        {
+            let mut meta=tx.open_table(META).unwrap();
+            meta.insert("schema_version","999").unwrap();
+        }
+        tx.commit().unwrap();drop(index);
+        assert!(matches!(Index::open(&root),Err(Error::UnsupportedFormat)));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_to_an_existing_directory_is_not_a_research_index(){
+        use std::os::unix::fs::symlink;
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let index=Index::open(&root).unwrap();drop(index);
+        let alias=t.path().join("alias");
+        symlink(&root,&alias).unwrap();
+        assert!(matches!(Index::open(&alias),Err(Error::NotResearchPath)));
+    }
+    #[test]
     fn existing_unknown_directory_is_never_initialized(){
         let t=TempDir::new().unwrap();let path=t.path().join("production-folder");
         fs::create_dir(&path).unwrap();
