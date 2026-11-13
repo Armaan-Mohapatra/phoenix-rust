@@ -1,0 +1,113 @@
+name: Phase 0 complete Rust integration verification
+on:
+  push:
+    branches: [codex/phase0-consolidated-v1]
+    paths: ['crates/**','integrations/**','.github/workflows/phase0-consolidated.yml']
+  pull_request:
+    paths: ['crates/**','integrations/**','.github/workflows/phase0-consolidated.yml']
+permissions:
+  contents: read
+concurrency:
+  group: phase0-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  manifest-coverage:
+    name: Manifest coverage and dependency metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert all 16 standalone crates are included
+        shell: pwsh
+        run: |
+          $expected = @('disk-identity','durable-archive','hftbacktest-adapter','historical-input','indexed-archive','kalshi-read-only','kalshi-wire','paper-journal','parquet-batch','performance-report','real-btc-replay','real-ledger-parity','risk-guard','source-loader','source-ports','vertical-fixture') | Sort-Object
+          $actual = @(Get-ChildItem integrations -Directory | Where-Object { Test-Path "$($_.FullName)/Cargo.toml" } | ForEach-Object { $_.Name }) | Sort-Object
+          $difference = @(Compare-Object -ReferenceObject $expected -DifferenceObject $actual)
+          if ($difference.Count -ne 0) { $difference | Format-Table | Out-String | Write-Error; throw 'Standalone Cargo.toml coverage mismatch' }
+          Write-Host "Covered $($actual.Count) standalone manifests"
+      - name: Validate root and standalone dependency metadata
+        shell: pwsh
+        run: |
+          cargo metadata --no-deps --format-version 1 | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Root dependency metadata failed' }
+          foreach ($pkg in @('disk-identity','durable-archive','hftbacktest-adapter','historical-input','indexed-archive','kalshi-read-only','kalshi-wire','paper-journal','parquet-batch','performance-report','real-btc-replay','real-ledger-parity','risk-guard','source-loader','source-ports','vertical-fixture')) {
+            cargo metadata --no-deps --format-version 1 --manifest-path "integrations/$pkg/Cargo.toml" | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Metadata failed: $pkg" }
+          }
+  root:
+    name: Core workspace and Clippy (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update stable
+      - name: Test all nine root workspace crates, all targets
+        run: cargo test --workspace --all-targets --offline
+      - name: Analyze root Rust types and unused paths
+        run: cargo clippy --workspace --all-targets
+  storage:
+    name: Sealed archives, redb and paper journal (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update stable
+      - name: Run every standalone storage/persistence test suite
+        shell: pwsh
+        run: |
+          foreach ($pkg in @('parquet-batch','durable-archive','disk-identity','indexed-archive','paper-journal')) {
+            cargo test --manifest-path "integrations/$pkg/Cargo.toml" --all-targets
+            if ($LASTEXITCODE -ne 0) { throw "FAILED: $pkg" }
+          }
+  historical:
+    name: Real-history fixtures, source, wire and evidence (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update stable
+      - name: Test all read-only market and historical replay suites
+        shell: pwsh
+        run: |
+          foreach ($pkg in @('kalshi-read-only','kalshi-wire','historical-input','source-loader','real-btc-replay','real-ledger-parity','vertical-fixture')) {
+            cargo test --manifest-path "integrations/$pkg/Cargo.toml" --all-targets
+            if ($LASTEXITCODE -ne 0) { throw "FAILED: $pkg" }
+          }
+      - name: Parse the Windows local-source launcher without invoking it
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("integrations/source-loader/scripts/run-original-btc.ps1",[ref]$tokens,[ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -ne 0) { $parseErrors | Format-List | Out-String | Write-Error; throw 'PowerShell parse failed' }
+  quantitative:
+    name: Fee diagnostics, risk, reporting and pinned HFT (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update stable
+      - name: Test all mathematical, reporter and risk suites
+        shell: pwsh
+        run: |
+          foreach ($pkg in @('source-ports','risk-guard','performance-report')) {
+            cargo test --manifest-path "integrations/$pkg/Cargo.toml" --all-targets
+            if ($LASTEXITCODE -ne 0) { throw "FAILED: $pkg" }
+          }
+      - name: Exercise real pinned upstream HftBacktest backtest-only feature
+        run: cargo test --manifest-path integrations/hftbacktest-adapter/Cargo.toml --all-targets --features upstream-hft
