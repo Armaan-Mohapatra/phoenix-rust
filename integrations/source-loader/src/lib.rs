@@ -10,6 +10,8 @@ use sha2::{Sha256,Digest};
 use std::{collections::{HashMap,BTreeMap},fs::File,io::Read,path::PathBuf};
 use zip::ZipArchive;
 
+pub mod pipeline;
+
 const MEMBER_LIMIT:u64=16*1024*1024;
 const CATALOG_LIMIT:usize=4*1024*1024;
 const MAX_MEMBERS:usize=32;
@@ -398,6 +400,40 @@ mod tests{
         req.named_members=vec!["archive/curated/raw_events/../secret.parquet".into()];
         assert!(matches!(replay(&req,&index,|_,_|Ok(())),
             Err(Error::InvalidMember)));
+    }
+    #[test]
+    fn integrated_source_pipeline_preserves_asof_and_incomplete_book(){
+        let t=TempDir::new().unwrap();
+        let (req,index)=setup(&t);
+        let decision=1_792_882_057_100_000_000i64;
+        let early=1_792_882_057_090_000_000i64;
+        let output=crate::pipeline::run(&req,&index,decision,&[early]).unwrap();
+        assert_eq!(output.selected_members,1);
+        assert_eq!(output.declared_rows,2);
+        assert_eq!(output.decoded_source_rows,2);
+        // Only the earlier delta was visible; the trade at 22:47:37.104
+        // cannot leak into a decision at 22:47:37.100.
+        assert_eq!(output.matching_observations,1);
+        assert_eq!(output.deltas_observed,1);
+        assert_eq!(output.trades_observed,0);
+        assert_eq!(output.missing_snapshot_deltas,1);
+        assert_eq!(output.status,crate::pipeline::EvidenceClass::Incomplete);
+        assert_eq!(output.checkpoints.len(),2);
+        assert!(output.checkpoints.iter().all(|x|!x.execution_eligible));
+        assert!(output.checkpoints[0].best_yes_bid.is_none());
+        let again=crate::pipeline::run(&req,&index,decision,&[early]).unwrap();
+        let a=serde_json::to_string(&output).unwrap();
+        let b=serde_json::to_string(&again).unwrap();
+        assert_eq!(a,b);
+    }
+    #[test]
+    fn integrated_pipeline_rejects_corrupt_source_and_member_traversal(){
+        let t=TempDir::new().unwrap();let (mut req,index)=setup(&t);
+        let corrupted=index.iter().copied().map(|b|if b==b'f'{b'e'}else{b})
+            .collect::<Vec<_>>();
+        assert!(crate::pipeline::run(&req,&corrupted,req.end_received_ns,&[]).is_err());
+        req.named_members=vec!["archive/curated/raw_events/../secret.parquet".into()];
+        assert!(crate::pipeline::run(&req,&index,req.end_received_ns,&[]).is_err());
     }
     #[test]
     fn no_verified_snapshot_never_promotes_a_market_book(){
