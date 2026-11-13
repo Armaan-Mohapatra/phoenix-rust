@@ -827,3 +827,114 @@ mod external_manifest_paging_tests {
         assert!(matches!(b.verify_all(),Err(Error::DigestMismatch(_))));
     }
 }
+
+#[cfg(test)]
+mod phase2_archive_fault_tests{
+    use super::*;
+    use tempfile::TempDir;
+    fn scope()->SourceScope{
+        SourceScope{feed:"kalshi".into(),session:"research".into(),market:"BTC".into(),
+            observed_sequence_gaps:0,quality_flags:vec![],source_manifest_sha256:None}
+    }
+    fn event(n:u64)->EventRow{
+        EventRow{event_id:format!("btc:{n}"),data:Row{
+            feed:"kalshi".into(),session:"research".into(),market:"BTC".into(),
+            exchange_ns:n as i64,received_ns:n as i64+1,sequence:n,
+            kind:1,payload:vec![n as u8,5,9]}}
+    }
+    #[test]
+    fn faults_across_each_preseal_transition_never_publish_unsealed_data(){
+        let scenarios=[
+            Fault::BeforeDataWrite,Fault::DuringDataWrite,
+            Fault::AfterDataWriteBeforeSync,Fault::AfterDataSync,
+            Fault::BeforeDataRename,Fault::AfterDataRename,
+            Fault::DuringManifestWrite,Fault::AfterManifestWriteBeforeSync,
+            Fault::AfterManifestSync,Fault::BeforeManifestRename,
+            Fault::DiskFullData,Fault::DiskFullManifest,
+            Fault::PermissionDeniedData,Fault::ReadOnlyData,
+            Fault::DisconnectedData,Fault::FailDataSync,
+            Fault::FailManifestSync,Fault::FailDataPublish,
+            Fault::FailManifestPublish,
+        ];
+        for (n,point) in scenarios.into_iter().enumerate(){
+            let t=TempDir::new().unwrap();
+            let root=t.path().join("isolated-research");
+            let mut a=Archive::open_external_index(&root).unwrap();
+            let err=a.publish_with_external_lookup_fault(
+                scope(),&[event(n as u64+1)],|_|Ok(None),point);
+            assert!(err.is_err(),"fault did not interrupt: {point:?}");
+            drop(a);
+            let b=Archive::open_external_index(&root).unwrap();
+            assert_eq!(b.committed_partitions(),0,"unexpected seal: {point:?}");
+            assert_eq!(b.recovery_summary().sealed_partitions_found,0);
+            assert_eq!(b.verify_all().unwrap(),0);
+        }
+    }
+    #[test]
+    fn postseal_preindex_error_is_recovered_from_original_manifest(){
+        let t=TempDir::new().unwrap();let root=t.path().join("research");
+        let mut a=Archive::open_external_index(&root).unwrap();
+        assert!(matches!(a.publish_with_external_lookup_fault(
+            scope(),&[event(1)],|_|Ok(None),Fault::AfterManifestRename),
+            Err(Error::PublicationUncertain)));
+        drop(a);
+        let b=Archive::open_external_index(&root).unwrap();
+        assert_eq!(b.committed_partitions(),1);
+        assert_eq!(b.verify_all().unwrap(),1);
+        assert_eq!(b.recovery_summary().publication_state,
+            PublicationState::SealedNotIndexed);
+    }
+    #[test]
+    fn no_clobber_seal_refuses_existing_data_name(){
+        let t=TempDir::new().unwrap();let root=t.path().join("research");
+        let mut a=Archive::open_external_index(&root).unwrap();
+        assert!(matches!(a.publish_with_external_lookup_fault(
+            scope(),&[event(1)],|_|Ok(None),Fault::AfterDataRename),
+            Err(Error::InjectedFault)));
+        let original=fs::read_dir(root.join("partitions")).unwrap()
+            .next().unwrap().unwrap().path();
+        let before=fs::read(&original).unwrap();
+        assert!(matches!(a.publish_with_external_lookup(
+            scope(),&[event(1)],|_|Ok(None)),
+            Err(Error::ExistingUncommittedPartition)));
+        assert_eq!(fs::read(original).unwrap(),before);
+    }
+    #[test]
+    fn marker_content_is_exact_not_just_a_file_presence_check(){
+        let t=TempDir::new().unwrap();let root=t.path().join("research");
+        let a=Archive::open(&root).unwrap();drop(a);
+        fs::write(root.join(MARKER),b"wrong file format\n").unwrap();
+        assert!(matches!(Archive::open(&root),
+            Err(Error::NotDedicatedResearchPath)));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_alias_is_rejected_before_file_io(){
+        use std::os::unix::fs::symlink;
+        let t=TempDir::new().unwrap();let root=t.path().join("research");
+        let a=Archive::open(&root).unwrap();drop(a);
+        let alias=t.path().join("linked");
+        symlink(&root,&alias).unwrap();
+        assert!(matches!(Archive::open(&alias),Err(Error::UnsafePath)));
+    }
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires Windows Developer Mode/admin for symlink: final local isolation test"]
+    fn windows_reparse_directory_is_rejected(){
+        use std::os::windows::fs::symlink_dir;
+        let t=TempDir::new().unwrap();let root=t.path().join("research");
+        let a=Archive::open(&root).unwrap();drop(a);
+        let alias=t.path().join("junction-test-alias");
+        symlink_dir(&root,&alias).unwrap();
+        assert!(matches!(Archive::open(&alias),Err(Error::UnsafePath)));
+    }
+    #[test]
+    fn IO_error_classification_and_uncertain_state_are_explicit(){
+        assert_eq!(Error::InjectedStorage(StorageFailure::DiskFull)
+            .storage_class(),StorageFailure::DiskFull);
+        assert_eq!(Error::PublicationUncertain.evidence_state(),
+            PublicationState::DurabilityUncertain);
+        assert_eq!(Error::InvalidManifest.evidence_state(),
+            PublicationState::CorruptOrInconsistent);
+    }
+}
