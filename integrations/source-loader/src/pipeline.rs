@@ -184,7 +184,11 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
     let mut last:Option<CapturedMessage>=None;
     let mut checkpoints=Vec::<Checkpoint>::new();
     let mut next=0usize;
-    let evidence:Evidence=replay(req,catalog_bytes,|event,decoded|{
+    // Source loader observes no channel evidence beyond the decision cutoff.
+    // This also ensures a future event cannot influence sequence diagnostics.
+    let mut asof_request=req.clone();
+    asof_request.end_received_ns=decision_ns;
+    let evidence:Evidence=match replay(&asof_request,catalog_bytes,|event,decoded|{
         if event.received_ns>decision_ns{
             future+=1;
             return Ok(());
@@ -211,26 +215,34 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
             Message::Unhandled(_)=>{excluded+=1;return Ok(());},
         }
         clocks+=usize::from(event.source_clock_ahead);
-        match book.apply(event,decoded){
-            Ok(())=>{},
-            Err(forensic::Error::MissingSnapshot)=>missing_snap+=1,
-            Err(forensic::Error::SessionChanged)=>changed+=1,
+        let applied=match book.apply(event,decoded){
+            Ok(())=>true,
+            Err(forensic::Error::MissingSnapshot)=>{missing_snap+=1;false},
+            Err(forensic::Error::SessionChanged)=>{changed+=1;false},
             Err(forensic::Error::NegativeDepth|
-                forensic::Error::InvalidSnapshot)=>{invalid_depth+=1;excluded+=1;},
-            Err(_)=>excluded+=1,
-        }
+                forensic::Error::InvalidSnapshot)=>{invalid_depth+=1;excluded+=1;false},
+            Err(_)=>{excluded+=1;false},
+        };
         chain.update((event.raw_sha256.len() as u64).to_le_bytes());
         chain.update(event.raw_sha256.as_bytes());
-        first.get_or_insert(event.received_ns);
-        last=Some(event.clone());
-        accepted+=1;
+        if applied {
+            first.get_or_insert(event.received_ns);
+            last=Some(event.clone());
+            accepted+=1;
+        }
         Ok(())
-    })?;
+    }){
+        Err(crate::Error::InvalidSource) if conflicts>0=>{
+            return Err(Error::DuplicateConflict(req.ticker.clone()));
+        },
+        Err(other)=>return Err(Error::Source(other)),
+        Ok(evidence)=>evidence,
+    };
     while next<checkpoint_asof_ns.len(){
         checkpoints.push(checkpoint(&book,checkpoint_asof_ns[next],&last));
         next+=1;
     }
-    if checkpoints.last().is_none_or(|c|c.asof_received_ns!=decision_ns){
+    if checkpoints.last().map_or(true,|c|c.asof_received_ns!=decision_ns){
         checkpoints.push(checkpoint(&book,decision_ns,&last));
     }
     let declared_rows=evidence.partition_proofs.iter()
