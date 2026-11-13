@@ -560,11 +560,23 @@ mod tests {
         let json=a.recovery_report_json().unwrap();
         let report:RecoverySummary=serde_json::from_str(&json).unwrap();
         assert_eq!(report.publication_state,PublicationState::FullyReconciled);
+        assert!(report.inspection_complete);
         assert_eq!(report.sealed_partitions_found,1);
         assert_eq!(report.missing_or_orphaned_records,None);
         assert_eq!(report.identity_conflicts,None);
         assert_eq!(report.evidence_partition_sha256_samples.len(),1);
         assert!(!json.contains("synthetic order payload"));
+    }
+    #[test]
+    fn failed_open_json_never_claims_completed_inspection_or_no_missing_data(){
+        let failed=IndexedArchive::failed_open_report(
+            &Error::OrphanIndex("a".repeat(64)));
+        assert_eq!(failed.publication_state,
+            PublicationState::CorruptOrInconsistent);
+        assert!(!failed.inspection_complete);
+        assert_eq!(failed.missing_or_orphaned_records,None);
+        assert!(failed.manual_intervention_required);
+        assert_eq!(failed.errors,vec!["PHANTOM_INDEX_MARKER"]);
     }
     #[test]
     fn corrupt_startup_manifest_stays_on_disk_for_forensic_review(){
