@@ -61,6 +61,9 @@ pub enum Assurance {
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq)]
 pub struct RecoverySummary {
     pub schema_version:u32,
+    /// True only after all configured in-scope partitions were inspected.
+    /// Counts in an interrupted report are partial observations, not zero loss.
+    pub inspection_complete:bool,
     pub publication_state:PublicationState,
     pub assurance:Assurance,
     pub sealed_partitions_found:usize,
@@ -75,19 +78,22 @@ pub struct RecoverySummary {
     pub missing_or_orphaned_records:Option<usize>,
     pub manual_intervention_required:bool,
     pub evidence_partition_sha256_samples:Vec<String>,
+    pub source_manifest_sha256_samples:Vec<String>,
     pub errors:Vec<String>,
 }
 impl RecoverySummary {
     pub fn empty()->Self{
         Self {
-            schema_version:1,publication_state:PublicationState::PreparedUncommitted,
+            schema_version:1,inspection_complete:false,
+            publication_state:PublicationState::PreparedUncommitted,
             assurance:Assurance::Uncertain,sealed_partitions_found:0,
             index_transactions_recovered:0,already_indexed_partitions:0,
             verified_event_references:0,quarantined_partial_files:0,
             quarantined_unsealed_data_files:0,rejected_corrupt_partitions:None,
             duplicate_event_identities:None,identity_conflicts:None,
             missing_or_orphaned_records:None,manual_intervention_required:false,
-            evidence_partition_sha256_samples:Vec::new(),errors:Vec::new(),
+            evidence_partition_sha256_samples:Vec::new(),
+            source_manifest_sha256_samples:Vec::new(),errors:Vec::new(),
         }
     }
     pub fn record_evidence(&mut self,sha256:&str){
@@ -96,8 +102,15 @@ impl RecoverySummary {
             self.evidence_partition_sha256_samples.push(sha256.to_owned());
         }
     }
+    pub fn record_source_manifest(&mut self,sha256:&str){
+        if sha256.len()==64&&sha256.bytes().all(|c|c.is_ascii_hexdigit())&&
+            self.source_manifest_sha256_samples.len()<8{
+            self.source_manifest_sha256_samples.push(sha256.to_owned());
+        }
+    }
     pub fn blocked(mut self,category:&str)->Self{
         self.publication_state=PublicationState::CorruptOrInconsistent;
+        self.inspection_complete=false;
         self.manual_intervention_required=true;
         // Bounded reporting; error categories only, never free-form payloads.
         if self.errors.len()<16{self.errors.push(category.to_owned());}
