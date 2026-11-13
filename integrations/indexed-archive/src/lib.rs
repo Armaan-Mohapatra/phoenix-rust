@@ -40,6 +40,11 @@ impl IndexedArchive {
             return Err(Error::InvalidManifest);
         }
         let root=path.as_ref();
+        if root.components().any(|p|{
+            let n=p.as_os_str().to_string_lossy();
+            ["TradingNextData","KalshiData","KalshiRuntime","paper15m_runtime"]
+                .iter().any(|protected|n.eq_ignore_ascii_case(protected))
+        }){return Err(Error::UnsafeRoot);}
         if root.exists(){
             if fs::read(root.join(MARKER)).map_err(|_|Error::UnsafeRoot)?!=MAGIC {
                 return Err(Error::UnsafeRoot);
