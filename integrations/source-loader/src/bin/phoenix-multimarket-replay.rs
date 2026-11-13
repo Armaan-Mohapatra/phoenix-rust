@@ -7,7 +7,7 @@ use sha2::{Digest,Sha256};
 use std::{env,fs::{self,File},io::Read,path::PathBuf};
 use zip::ZipArchive;
 const MAX_PLAN:usize=128*1024;
-const MAX_PRIOR:usize=4*1024*1024;
+const MAX_PRIOR:usize=20*1024*1024;
 const MAX_CATALOG:u64=4*1024*1024;
 #[derive(Deserialize)]
 struct Plan{
@@ -21,6 +21,14 @@ fn bounded_file(path:&str,max:usize)->Result<Vec<u8>,String>{
     let data=fs::read(path).map_err(|e|e.to_string())?;
     if data.len()>max{return Err("INPUT_TOO_LARGE".into());}
     Ok(data)
+}
+fn parse_prior(bytes:&[u8])->Result<Vec<ReusableMarketCheckpoint>,String>{
+    let content:serde_json::Value=serde_json::from_slice(bytes)
+        .map_err(|e|e.to_string())?;
+    let checkpoints=if content.is_array(){content}
+        else{content.get("next_checkpoints").cloned()
+            .ok_or("PREVIOUS_REPORT_MISSING_NEXT_CHECKPOINTS")?};
+    serde_json::from_value(checkpoints).map_err(|e|e.to_string())
 }
 fn run()->Result<(),String>{
     let args=env::args().collect::<Vec<_>>();
@@ -36,8 +44,10 @@ fn run()->Result<(),String>{
     let prior:Vec<ReusableMarketCheckpoint>=if args[2]=="-"{
         vec![]
     }else{
-        serde_json::from_slice(&bounded_file(&args[2],MAX_PRIOR)?)
-            .map_err(|e|e.to_string())?
+        let bytes=bounded_file(&args[2],MAX_PRIOR)?;
+        // Accept either an extracted checkpoint vector or the original
+        // self-contained JSON report emitted by this command.
+        parse_prior(&bytes)?
     };
     let zip_paths=args[3..].iter().map(PathBuf::from).collect::<Vec<_>>();
     let mut zip=ZipArchive::new(
@@ -66,5 +76,15 @@ fn main(){
     if let Err(err)=run(){
         eprintln!("PHOENIX_MULTI_MARKET_BLOCKED: {err}");
         std::process::exit(2);
+    }
+}
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+    #[test]fn resumes_from_full_report_or_vector_without_replay(){
+        assert!(parse_prior(br#"{"next_checkpoints":[]}"#).unwrap().is_empty());
+        assert!(parse_prior(b"[]").unwrap().is_empty());
+        assert!(parse_prior(br#"{"other":"missing"}"#).is_err());
     }
 }
