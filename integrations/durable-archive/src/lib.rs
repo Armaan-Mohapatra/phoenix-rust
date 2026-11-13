@@ -409,35 +409,59 @@ mod tests {
 }
 
 
+
 impl Archive {
-    /// Read only previously sealed and checksum-verified rows. The callback
+    // A single-partition reader is needed by the disk-backed wrapper so that
+    // normal append operations do not reread every previously sealed partition.
+    // The complete readback remains available for cold-start reconciliation.
+    fn visit_one_verified<F>(
+        &self, manifest:&SealedPartition, callback:&mut F
+    )->Result<(),Error>
+    where F:FnMut(&SealedPartition,&EventIdentity,&Row)->Result<(),Error>{
+        let bytes=safe_read(
+            &data_path(&self.root,&manifest.partition_id),MAX_PARTITION_BYTES)?;
+        if hash(&bytes)!=manifest.parquet_sha256{
+            return Err(Error::DigestMismatch(manifest.partition_id.clone()));
+        }
+        let meta=ParquetManifest{
+            rows:manifest.rows,sha256:manifest.parquet_sha256.clone(),
+            received_min_ns:manifest.received_min_ns,
+            received_max_ns:manifest.received_max_ns,format:"parquet_zstd_v1",
+        };
+        let decoded=phoenix_parquet_batch::decode_finalized(&bytes,&meta)
+            .map_err(|e|Error::Parquet(format!("{e:?}")))?;
+        if decoded.len()!=manifest.events.len(){return Err(Error::InvalidManifest);}
+        for (identity,row) in manifest.events.iter().zip(decoded.iter()){
+            if identity.row_sha256!=sha_row(row){
+                return Err(Error::DigestMismatch(identity.id.clone()));
+            }
+            callback(manifest,identity,row)?;
+        }
+        Ok(())
+    }
+
+    /// Verify and visit exactly one *already sealed* partition by its digest.
+    /// Unknown or unsealed partitions must not be silently admitted.
+    pub fn visit_verified_partition<F>(
+        &self,partition_id:&str,mut callback:F
+    )->Result<(),Error>
+    where F:FnMut(&SealedPartition,&EventIdentity,&Row)->Result<(),Error>{
+        let manifest=self.manifests.get(partition_id).ok_or_else(||
+            Error::MissingCommittedPartition(partition_id.to_owned()))?;
+        self.visit_one_verified(manifest,&mut callback)
+    }
+
+    /// Reads only previously sealed and checksum-verified rows. The callback
     /// receives one row at a time; partitions remain strictly bounded.
     pub fn visit_verified_rows<F>(&self,mut callback:F)->Result<(),Error>
     where F:FnMut(&SealedPartition,&EventIdentity,&Row)->Result<(),Error>{
         for manifest in self.manifests.values(){
-            let bytes=safe_read(
-                &data_path(&self.root,&manifest.partition_id),MAX_PARTITION_BYTES)?;
-            if hash(&bytes)!=manifest.parquet_sha256{
-                return Err(Error::DigestMismatch(manifest.partition_id.clone()));
-            }
-            let meta=ParquetManifest{
-                rows:manifest.rows,sha256:manifest.parquet_sha256.clone(),
-                received_min_ns:manifest.received_min_ns,
-                received_max_ns:manifest.received_max_ns,format:"parquet_zstd_v1",
-            };
-            let decoded=phoenix_parquet_batch::decode_finalized(&bytes,&meta)
-                .map_err(|e|Error::Parquet(format!("{e:?}")))?;
-            if decoded.len()!=manifest.events.len(){return Err(Error::InvalidManifest);}
-            for (identity,row) in manifest.events.iter().zip(decoded.iter()){
-                if identity.row_sha256!=sha_row(row){
-                    return Err(Error::DigestMismatch(identity.id.clone()));
-                }
-                callback(manifest,identity,row)?;
-            }
+            self.visit_one_verified(manifest,&mut callback)?;
         }
         Ok(())
     }
 }
+
 #[cfg(test)]
 mod archived_row_tests{
     use super::*;
