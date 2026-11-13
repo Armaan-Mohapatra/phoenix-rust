@@ -11,6 +11,7 @@ use std::{collections::{HashMap,BTreeMap},fs::File,io::Read,path::PathBuf};
 use zip::ZipArchive;
 
 pub mod pipeline;
+pub mod book_integrity;
 
 const MEMBER_LIMIT:u64=16*1024*1024;
 const CATALOG_LIMIT:usize=4*1024*1024;
@@ -513,8 +514,19 @@ pub mod forensic {
                         }
                         Ok(m)
                     };
-                    self.yes=build(&s.yes_fp)?;
-                    self.no=build(&s.no_fp)?;
+                    // Both sides must validate before either can change:
+                    // a malformed NO half must not leave a YES-only book.
+                    let yes=build(&s.yes_fp)?;
+                    let no=build(&s.no_fp)?;
+                    if let (Some((yp,_)),Some((np,_)))=(
+                        yes.iter().next_back(),no.iter().next_back()){
+                        if u32::from(yp.ticks())+u32::from(np.ticks())>10_000{
+                            self.status=Initialization::InvalidBook;
+                            return Err(Error::InvalidSnapshot);
+                        }
+                    }
+                    self.yes=yes;
+                    self.no=no;
                     self.connection=Some(event.connection_id.clone());
                     self.sid=Some(sid);self.last_seq=Some(seq);
                     self.last_received=Some(at);
@@ -536,12 +548,23 @@ pub mod forensic {
                         // Other markets share sid/seq: NOT gap proof.
                         self.channel_sequence_ambiguous=true;
                     }
+                    let opposite_best=match d.side{
+                        Side::Yes=>self.no.iter().next_back().map(|(p,_)|*p),
+                        Side::No=>self.yes.iter().next_back().map(|(p,_)|*p),
+                    };
                     let m=match d.side{Side::Yes=>&mut self.yes,Side::No=>&mut self.no};
                     let old=m.get(&d.price).copied().unwrap_or(0);
                     let q=i128::from(old)+i128::from(d.delta_fp);
                     if q<0||q>i128::from(u64::MAX){
                         self.status=Initialization::InvalidBook;
                         return Err(Error::NegativeDepth);
+                    }
+                    if q>0{
+                        if opposite_best.is_some_and(|p|
+                            u32::from(p.ticks())+u32::from(d.price.ticks())>10_000){
+                            self.status=Initialization::InvalidBook;
+                            return Err(Error::InvalidSnapshot);
+                        }
                     }
                     if q==0{m.remove(&d.price);}
                     else{m.insert(d.price,q as u64);}
