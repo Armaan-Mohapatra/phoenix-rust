@@ -595,6 +595,36 @@ mod tests{
         assert!(matches!(f.resolve("KXBTC15M",FeeRole::Maker,50),
             Err(Error::FutureRule)));
     }
+    #[test]fn complete_primary_reference_yields_provisional_yes_only(){
+        let ticks=(0..120).map(|s|PrimaryTick{
+            second_utc:s,value_1e8:if s<60{100}else{101}
+        }).collect::<Vec<_>>();
+        let digest=primary_ticks_digest(&ticks).unwrap();
+        let data=PrimaryImport{
+            provider:"CF Benchmarks".into(),benchmark_id:"BRTI".into(),
+            methodology_revision:"reviewed-r1".into(),
+            source_sha256:"c".repeat(64),ticks_sha256:digest,
+            document_sha256:"a".repeat(64),retrieved_at_ns:100,
+            observed_at_ns:90,first_second_utc:0,ticks,
+        };
+        let result=validate_primary_windows(&rule(),&data).unwrap();
+        assert_eq!(result.derived_winner,Side::Yes);
+        assert_eq!(result.sample_count,60);
+        // A complete series alone is NOT verified independent provenance.
+        let fixture=phoenix_kalshi_read_only::parse_official_market(
+            "KXBTC-TEST",br#"{"market":{"ticker":"KXBTC-TEST",
+            "market_id":"MARKET-1","status":"settled","result":"yes"}}"#,100)
+            .unwrap();
+        assert_eq!(assess_official(&rule(),Some(&fixture)).tier,
+            OutcomeTier::UnknownOrPending);
+    }
+    #[test]fn historical_fee_checked_overflow_does_not_wrap(){
+        let mut f=fee(FeeRole::Taker);
+        f.rate_numerator=u64::MAX;
+        f.rate_denominator=1;
+        let result=f.charge(&[(Price::new(5000).unwrap(),u64::MAX)]);
+        assert!(result.is_err());
+    }
     #[test]fn primary_window_gap_is_not_interpolated(){
         struct TrustedForFixture;
         impl PrimaryProvenanceVerifier for TrustedForFixture{
