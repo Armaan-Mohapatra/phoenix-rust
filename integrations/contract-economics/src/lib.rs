@@ -132,12 +132,15 @@ pub struct FeeSchedule{
     pub formula:FeeFormula,pub rate_numerator:u64,pub rate_denominator:u64,
     pub rounding_step_centicents:u64,
     pub aggregation:FeeAggregation,
+    pub minimum_fee_centicents:Option<u64>,
     pub maximum_fee_centicents:Option<u64>,
 }
 #[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
 pub struct ChargedFee{
     pub fee_centicents:Money,
     pub source_sha256:String,pub role:FeeRole,
+    pub schedule_series:String,
+    pub evaluated_at_ns:Option<i64>,
     pub schedule_effective_from_ns:i64,
     pub aggregation:FeeAggregation,
 }
@@ -149,7 +152,9 @@ impl FeeRegistry{
             r.source_document_id.is_empty()||r.rate_denominator==0||
             r.rounding_step_centicents==0||
             r.effective_until_ns.is_some_and(|v|v<=r.effective_from_ns)||
-            r.published_ns>r.observed_ns||self.records.len()>=MAX_RECORDS{
+            r.published_ns>r.observed_ns||self.records.len()>=MAX_RECORDS||
+            (r.minimum_fee_centicents.is_some()&&r.maximum_fee_centicents.is_some()&&
+             r.minimum_fee_centicents>r.maximum_fee_centicents){
             return Err(Error::InvalidFee);
         }
         let end=r.effective_until_ns.unwrap_or(i64::MAX);
@@ -177,6 +182,15 @@ impl FeeRegistry{
         }
         found.ok_or(Error::UnknownFee)
     }
+    /// Only registry resolution can produce a fee with evidenced effective
+    /// time and series, suitable for the modeled accounting interface.
+    pub fn charge_at(&self,series:&str,role:FeeRole,asof_ns:i64,
+        fills:&[(Price,u64)])->Result<ChargedFee,Error>{
+        let schedule=self.resolve(series,role,asof_ns)?;
+        let mut charge=schedule.charge(fills)?;
+        charge.evaluated_at_ns=Some(asof_ns);
+        Ok(charge)
+    }
 }
 fn ceil_step(value:Money,step:Money)->Result<Money,Error>{
     if value<0||step<=0{return Err(Error::InvalidFee);}
@@ -197,9 +211,10 @@ impl FeeSchedule{
                     numerator:self.rate_numerator,denominator:self.rate_denominator
                 }.charge(qty,price)?,
                 FeeFormula::FlatPerContract=>{
-                    Money::from(self.rate_numerator)
-                        .checked_mul(Money::from(qty))
-                        .and_then(|n|n.checked_div(Money::from(self.rate_denominator)))
+                    let n=Money::from(self.rate_numerator)
+                        .checked_mul(Money::from(qty)).ok_or(Error::Overflow)?;
+                    let d=Money::from(self.rate_denominator);
+                    n.checked_add(d-1).and_then(|n|n.checked_div(d))
                         .ok_or(Error::Overflow)?
                 },
             };
@@ -223,11 +238,16 @@ impl FeeSchedule{
                 }
             },
         }
+        if let Some(minimum)=self.minimum_fee_centicents{
+            amount=amount.max(Money::from(minimum));
+        }
         if let Some(limit)=self.maximum_fee_centicents{
             amount=amount.min(Money::from(limit));
         }
-        Ok(ChargedFee{fee_centicents:amount,source_sha256:self.source_sha256.clone(),
-            role:self.role,schedule_effective_from_ns:self.effective_from_ns,
+        Ok(ChargedFee{fee_centicents:amount,
+            source_sha256:self.source_sha256.clone(),role:self.role,
+            schedule_series:self.series.clone(),evaluated_at_ns:None,
+            schedule_effective_from_ns:self.effective_from_ns,
             aggregation:self.aggregation})
     }
 }
@@ -387,6 +407,14 @@ pub fn modeled_expiry_pnl(
     ->Result<ModeledAccounting,Error>{
     contract.validate()?;
     if quantity==0{return Err(Error::InvalidFee);}
+    if let Some(e)=fee{
+        if e.schedule_series!=contract.series||!sha_ok(&e.source_sha256)||
+            e.evaluated_at_ns.map_or(true,|at|
+                at<contract.market_open_ns||at>contract.expiration_ns||
+                at<e.schedule_effective_from_ns){
+            return Err(Error::InvalidFee);
+        }
+    }
     let mut out=ModeledAccounting{
         market:contract.ticker.clone(),modeled_fill:true,
         entry_price_ticks:price.ticks(),quantity,
@@ -477,7 +505,7 @@ mod tests{
             formula:FeeFormula::QuadraticPrice,
             rate_numerator:7,rate_denominator:100,
             rounding_step_centicents:100,aggregation:FeeAggregation::PerFill,
-            maximum_fee_centicents:None}
+            minimum_fee_centicents:None,maximum_fee_centicents:None}
     }
     #[test]fn effective_rules_never_look_forward_or_overlap(){
         let mut r=ContractRegistry::default();
@@ -497,6 +525,20 @@ mod tests{
         let computed=fee(FeeRole::Taker).charge(&[(p,2)]).unwrap();
         assert_eq!(computed.fee_centicents%100,0);
         assert!(computed.fee_centicents>0);
+    }
+    #[test]fn historical_fee_accounting_requires_time_and_matching_series(){
+        let mut registry=FeeRegistry::default();
+        registry.insert(fee(FeeRole::Taker)).unwrap();
+        let amount=registry.charge_at("KXBTC15M",FeeRole::Taker,50,
+            &[(Price::new(5000).unwrap(),1)]).unwrap();
+        assert_eq!(amount.evaluated_at_ns,Some(50));
+        let mut mismatch=amount.clone();mismatch.schedule_series="OTHER".into();
+        assert!(matches!(modeled_expiry_pnl(&rule(),Side::Yes,
+            Price::new(5000).unwrap(),1,Some(&mismatch),None),
+            Err(Error::InvalidFee)));
+        assert!(modeled_expiry_pnl(&rule(),Side::Yes,
+            Price::new(5000).unwrap(),1,Some(&amount),None).unwrap()
+            .net_modeled_pnl_centicents.is_none());
     }
     #[test]fn invalid_contract_types_and_primary_missing_fail_closed(){
         let mut r=rule();r.contract_type=ContractType::Scalar;
