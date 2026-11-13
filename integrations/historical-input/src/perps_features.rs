@@ -70,7 +70,7 @@ fn top_book(ev:&PerpsEvent)->Option<(&DepthLevel,&DepthLevel)>{
 }
 fn isqrt(n:u128)->u128{
     if n<2{return n;}
-    let mut x=n;let mut y=(x+1)/2;
+    let mut x=n;let mut y=x/2+1;
     while y<x{x=y;y=(x+n/x)/2;}
     x
 }
@@ -292,7 +292,7 @@ mod tests{
         b.ingest(obs("A",90,"id1",quote())).unwrap();
         let mut second=obs("A",95,"id2",quote());
         second.source_session="s2".into();b.ingest(second).unwrap();
-        assert_eq!(b.join(&req()),Err(Error::SessionUnverified));
+        assert!(matches!(b.join(&req()),Err(Error::SessionUnverified)));
     }
     #[test]fn stale_quote_causes_missing_venue_not_future_lookahead(){
         let mut b=CausalPerpsBuffer::default();
