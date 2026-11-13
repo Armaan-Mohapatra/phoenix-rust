@@ -46,7 +46,7 @@ impl WindowDefinition{
 }
 #[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct ContractDefinition{
-    pub ticker:String,pub market_id:String,
+    pub ticker:String,pub market_id:Option<String>,
     pub event_id:String,pub series:String,
     pub contract_type:ContractType,
     pub market_open_ns:i64,pub expiration_ns:i64,
@@ -61,7 +61,8 @@ pub struct ContractDefinition{
 }
 impl ContractDefinition{
     fn validate(&self)->Result<(),Error>{
-        if !valid_name(&self.ticker)||!valid_name(&self.market_id)||
+        if !valid_name(&self.ticker)||
+            self.market_id.as_deref().is_some_and(|id|!valid_name(id))||
             !valid_name(&self.event_id)||!valid_name(&self.series)||
             self.source_document_id.is_empty()||
             !sha_ok(&self.source_document_sha256)||!sha_ok(&self.version_sha256)||
@@ -344,7 +345,8 @@ fn as_text(side:Side)->String{
 /// contain an archived ID or event ticker they must not conflict.
 fn official_identity_matches(c:&ContractDefinition,o:&OfficialMarketEvidence)->bool{
     o.ticker==c.ticker&&o.market_type.as_deref()==Some("binary")&&
-    o.market_id.as_deref().map_or(true,|id|id==c.market_id)&&
+    !matches!((&o.market_id,&c.market_id),
+        (Some(official),Some(archived)) if official!=archived)&&
     o.event_ticker.as_deref().map_or(true,|event|event==c.event_id)
 }
 fn official_winner(o:&OfficialMarketEvidence)->Option<Side>{
@@ -574,7 +576,7 @@ pub fn modeled_expiry_pnl_with_assessment(
 mod tests{
     use super::*;
     fn rule()->ContractDefinition{
-        ContractDefinition{ticker:"KXBTC-TEST".into(),market_id:"MARKET-1".into(),
+        ContractDefinition{ticker:"KXBTC-TEST".into(),market_id:Some("MARKET-1".into()),
             event_id:"EVENT-1".into(),series:"KXBTC15M".into(),
             contract_type:ContractType::BinaryIndexComparison,
             market_open_ns:1,expiration_ns:200_000_000_000,
@@ -688,6 +690,19 @@ mod tests{
             .unwrap();
         assert_eq!(assess_official(&rule(),Some(&fixture)).tier,
             OutcomeTier::UnknownOrPending);
+    }
+    #[test]fn contract_registry_allows_no_unverified_uuid_without_synthesizing_it(){
+        let mut c=rule();
+        c.market_id=None;
+        c.validate().unwrap();
+        let official=phoenix_kalshi_read_only::parse_official_market("KXBTC-TEST",
+            br#"{"market":{"ticker":"KXBTC-TEST","event_ticker":"EVENT-1",
+                "market_type":"binary","status":"finalized","result":"yes"}}"#,
+            250_000_000_000).unwrap();
+        assert_eq!(official.market_id,None);
+        assert!(official_identity_matches(&c,&official));
+        let mut different=c.clone();different.event_id="DIFFERENT".into();
+        assert!(!official_identity_matches(&different,&official));
     }
     #[test]fn independent_methodology_document_hash_need_not_equal_contract_hash(){
         let ticks=(0..120).map(|second_utc|PrimaryTick{
