@@ -249,7 +249,7 @@ impl IndexedArchive {
                 // A failed publication may have passed the sealed-manifest
                 // boundary. Never allow a second publication without a
                 // recovered, fully verified cold reopen.
-                if !matches!(e,phoenix_durable_archive::Error::InvalidInput|
+                if !matches!(&e,phoenix_durable_archive::Error::InvalidInput|
                     phoenix_durable_archive::Error::DuplicateConflict(_)|
                     phoenix_durable_archive::Error::CapacityExceeded){
                     self.poisoned=true;
