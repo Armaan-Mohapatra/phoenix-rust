@@ -51,6 +51,27 @@ pub enum FaultPoint {
     ReadOnlyData,DisconnectedData,FailDataSync,FailManifestSync,
     FailDataPublish,FailManifestPublish,
 }
+impl FaultPoint{
+    /// Exact phase represented by each injected transition. This is NOT a
+    /// substitute for checking the persisted filesystem after a real failure.
+    pub fn interrupted_state(self)->PublicationState{
+        match self{
+            Self::None=>PublicationState::FullyReconciled,
+            Self::BeforeDataWrite|Self::DuringDataWrite|
+            Self::AfterDataWriteBeforeSync|Self::AfterDataSync|
+            Self::BeforeDataRename|Self::DiskFullData|
+            Self::PermissionDeniedData|Self::ReadOnlyData|
+            Self::DisconnectedData|Self::FailDataSync|
+            Self::FailDataPublish=>PublicationState::PreparedUncommitted,
+            Self::AfterDataRename|Self::DuringManifestWrite|
+            Self::AfterManifestWriteBeforeSync|Self::AfterManifestSync|
+            Self::BeforeManifestRename|Self::DiskFullManifest|
+            Self::FailManifestSync|Self::FailManifestPublish=>
+                PublicationState::DataSyncedUnsealed,
+            Self::AfterManifestRename=>PublicationState::SealedNotIndexed,
+        }
+    }
+}
 #[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(rename_all="SCREAMING_SNAKE_CASE")]
 pub enum Assurance {
