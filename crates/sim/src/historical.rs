@@ -368,6 +368,24 @@ mod tests{
         let mut book=b();book.yes_bids[0].price=p(6000);
         assert_eq!(book.validate(),Err(Error::InvalidBook));
     }
+    #[test]fn nonmarketable_taker_has_no_phantom_liquidity(){
+        let mut intent=o(LiquidityRole::Taker);intent.limit_price=p(2000);
+        let r=simulate(&intent,&[b()],t(&[]),&FixtureFee).unwrap();
+        assert_eq!(r.state,OrderState::Unfilled);
+        assert!(r.modeled_fills.is_empty());
+        assert_eq!(r.modeled_fees_centicents,0);
+    }
+    #[test]fn maker_unfilled_order_expires_without_a_fill(){
+        let mut intent=o(LiquidityRole::Maker);intent.limit_price=p(4000);
+        let r=simulate(&intent,&[b()],t(&[]),&FixtureFee).unwrap();
+        assert_eq!(r.state,OrderState::Expired);
+        assert_eq!(r.filled_hundredths,0);
+    }
+    #[test]fn future_signal_is_rejected_before_book_access(){
+        let mut intent=o(LiquidityRole::Taker);intent.signal_received_ns=21;
+        assert_eq!(simulate(&intent,&[b()],t(&[]),&FixtureFee)
+            .unwrap_err(),Error::FutureSignal);
+    }
     #[test]fn scenario_list_is_bounded(){
         let orders=vec![o(LiquidityRole::Taker);17];
         assert_eq!(simulate_scenarios(&orders,&[b()],t(&[]),&FixtureFee)
