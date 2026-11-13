@@ -1,0 +1,15 @@
+[package]
+name="phoenix-contract-economics"
+version="0.1.0"
+publish=false
+edition="2021"
+
+[workspace]
+
+[dependencies]
+phoenix-domain={path="../../crates/domain"}
+phoenix-settlement={path="../../crates/settlement"}
+phoenix-kalshi-read-only={path="../kalshi-read-only"}
+serde={version="1",features=["derive"]}
+sha2="0.10"
+serde_json="1"
