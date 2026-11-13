@@ -7,6 +7,7 @@ use phoenix_settlement::{IndexTick,WindowRule,compare_window_averages};
 use phoenix_kalshi_read_only::{OfficialMarketEvidence,OfficialStatus};
 use serde::{Deserialize,Serialize};
 use sha2::{Digest,Sha256};
+pub mod primary;
 
 const MAX_RECORDS:usize=4096;
 const MAX_TICKS:usize=3600;
@@ -242,9 +243,20 @@ pub struct PrimaryTick {pub second_utc:i64,pub value_1e8:i128}
 pub struct PrimaryImport {
     pub provider:String,pub benchmark_id:String,
     pub methodology_revision:String,pub source_sha256:String,
+    pub ticks_sha256:String,
     pub document_sha256:String,pub retrieved_at_ns:i64,
     pub observed_at_ns:i64,pub first_second_utc:i64,
     pub ticks:Vec<PrimaryTick>,
+}
+pub fn primary_ticks_digest(ticks:&[PrimaryTick])->Result<String,Error>{
+    if ticks.is_empty()||ticks.len()>MAX_TICKS{return Err(Error::InvalidPrimary);}
+    let mut h=Sha256::new();
+    h.update((ticks.len() as u64).to_le_bytes());
+    for tick in ticks{
+        h.update(tick.second_utc.to_le_bytes());
+        h.update(tick.value_1e8.to_le_bytes());
+    }
+    Ok(format!("{:x}",h.finalize()))
 }
 /// Authorization and provenance validation must be provided by a trusted
 /// external primary-source integration, never by two different labels.
@@ -285,6 +297,8 @@ pub fn corroborate_primary(
         source.benchmark_id!=contract.benchmark_id||
         source.methodology_revision!=contract.methodology_revision||
         !sha_ok(&source.source_sha256)||!sha_ok(&source.document_sha256)||
+        !sha_ok(&source.ticks_sha256)||
+        primary_ticks_digest(&source.ticks)?!=source.ticks_sha256||
         source.document_sha256!=contract.source_document_sha256||
         source.observed_at_ns>source.retrieved_at_ns||
         source.ticks.len()>MAX_TICKS||source.ticks.is_empty()||
@@ -354,6 +368,8 @@ pub fn modeled_expiry_pnl(
     contract:&ContractDefinition,side:Side,price:Price,quantity:u64,
     fee:Option<&ChargedFee>,official:Option<&OfficialMarketEvidence>)
     ->Result<ModeledAccounting,Error>{
+    contract.validate()?;
+    if quantity==0{return Err(Error::InvalidFee);}
     let mut out=ModeledAccounting{
         market:contract.ticker.clone(),modeled_fill:true,
         entry_price_ticks:price.ticks(),quantity,
@@ -394,6 +410,27 @@ pub fn modeled_expiry_pnl(
     out.uncertainty.push("BLOCKED_INDEPENDENT_SETTLEMENT".into());
     Ok(out)
 }
+/// Report independent settlement only from a separately authenticated
+/// provenance assessment matching the same contract and official winner.
+pub fn modeled_expiry_pnl_with_assessment(
+    contract:&ContractDefinition,side:Side,price:Price,quantity:u64,
+    fee:Option<&ChargedFee>,official:Option<&OfficialMarketEvidence>,
+    assessment:Option<&SettlementAssessment>)->Result<ModeledAccounting,Error>{
+    let mut result=modeled_expiry_pnl(contract,side,price,quantity,fee,official)?;
+    if let Some(a)=assessment{
+        if a.market!=contract.ticker{return Err(Error::WrongMarket);}
+        if a.tier==OutcomeTier::ConflictingOrInvalid{
+            return Err(Error::ConflictingSettlement);
+        }
+        if a.tier==OutcomeTier::IndependentCorroborated&&
+            a.official_winner==result.official_result&&
+            a.primary_source_sha256.as_deref().is_some_and(sha_ok){
+            result.independently_verified=true;
+            result.uncertainty.retain(|x|x!="BLOCKED_INDEPENDENT_SETTLEMENT");
+        }
+    }
+    Ok(result)
+}
 #[cfg(test)]
 mod tests{
     use super::*;
@@ -426,13 +463,13 @@ mod tests{
         let mut r=ContractRegistry::default();
         r.insert(rule()).unwrap();
         assert!(r.resolve("KXBTC-TEST",0).is_ok());
-        assert_eq!(r.resolve("OTHER",5),Err(Error::UnknownRule));
+        assert!(matches!(r.resolve("OTHER",5),Err(Error::UnknownRule)));
         assert_eq!(r.insert(rule()),Err(Error::MultipleRules));
     }
     #[test]fn role_and_effective_schedule_are_required(){
         let mut f=FeeRegistry::default();f.insert(fee(FeeRole::Taker)).unwrap();
-        assert_eq!(f.resolve("KXBTC15M",FeeRole::Maker,5),Err(Error::UnknownFee));
-        assert_eq!(f.resolve("KXBTC15M",FeeRole::Taker,100),Err(Error::UnknownFee));
+        assert!(matches!(f.resolve("KXBTC15M",FeeRole::Maker,5),Err(Error::UnknownFee)));
+        assert!(matches!(f.resolve("KXBTC15M",FeeRole::Taker,100),Err(Error::UnknownFee)));
         assert!(f.resolve("KXBTC15M",FeeRole::Taker,50).is_ok());
     }
     #[test]fn maker_taker_schedule_uses_existing_fixed_point_rates(){
@@ -453,10 +490,12 @@ mod tests{
             fn authenticate(&self,_:&PrimaryImport,_:&ContractDefinition)->bool{true}
         }
         let ticks=(0..120).filter(|s|*s!=61).map(|s|PrimaryTick{
-            second_utc:s,value_1e8:100+i128::from(s>=60)}).collect();
+            second_utc:s,value_1e8:100+if s>=60{1}else{0}}).collect::<Vec<_>>();
+        let ticks_sha256=primary_ticks_digest(&ticks).unwrap();
         let p=PrimaryImport{provider:"CF Benchmarks".into(),benchmark_id:"BRTI".into(),
             methodology_revision:"reviewed-r1".into(),source_sha256:"c".repeat(64),
-            document_sha256:"a".repeat(64),retrieved_at_ns:20,observed_at_ns:10,
+            ticks_sha256,document_sha256:"a".repeat(64),
+            retrieved_at_ns:20,observed_at_ns:10,
             first_second_utc:0,ticks};
         let o=OfficialMarketEvidence{ticker:"KXBTC-TEST".into(),market_id:"MARKET-1".into(),
             status:OfficialStatus::FinalYes,source_sha256:"d".repeat(64),
