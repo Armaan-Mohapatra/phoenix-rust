@@ -73,6 +73,9 @@ pub struct ReplayReport {
     pub conflicting_observations:usize,
     pub malformed_or_excluded_observations:usize,
     pub future_observations_excluded:usize,
+    /// This count covers the callback only. The source reader already
+    /// excludes after-cutoff rows, which cannot be enumerated here.
+    pub future_exclusion_count_scope:String,
     pub missing_snapshot_deltas:usize,
     pub invalid_depth_observations:usize,
     pub session_change_observations:usize,
@@ -180,7 +183,7 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
         return Err(Error::InvalidRequest);
     }
     let catalog_sha256=format!("{:x}",Sha256::digest(catalog_bytes));
-    let mut book=forensic::Book::new(&req.ticker);
+    // BookIntegrity is the sole owner of the underlying fractional L2 book.
     let mut integrity=BookIntegrity::new(&req.ticker);
     let mut chain=Sha256::new();
     let mut keyed=BTreeMap::<String,String>::new();
@@ -211,7 +214,7 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
         }
         while next<checkpoint_asof_ns.len()&&
             checkpoint_asof_ns[next]<event.received_ns{
-            checkpoints.push(checkpoint(&book,checkpoint_asof_ns[next],&last));
+            checkpoints.push(checkpoint(integrity.forensic_book(),checkpoint_asof_ns[next],&last));
             next+=1;
         }
         let key=stable_message_key(event,decoded);
@@ -233,13 +236,16 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
         // The evidence overlay reuses the same forensic fractional engine;
         // it does not certify availability solely from the decoded tape.
         integrity.observe(event,decoded);
-        let applied=match book.apply(event,decoded){
-            Ok(())=>true,
-            Err(forensic::Error::MissingSnapshot)=>{missing_snap+=1;false},
-            Err(forensic::Error::SessionChanged)=>{changed+=1;false},
-            Err(forensic::Error::NegativeDepth|
-                forensic::Error::InvalidSnapshot)=>{invalid_depth+=1;excluded+=1;false},
-            Err(_)=>{excluded+=1;false},
+        // Consume the application result from BookIntegrity. Do not replay
+        // the same event into a second mutable forensic book.
+        let applied=match integrity.last_apply_result(){
+            None=>true, // Trade: observed, no book mutation.
+            Some(Ok(()))=>true,
+            Some(Err(forensic::Error::MissingSnapshot))=>{missing_snap+=1;false},
+            Some(Err(forensic::Error::SessionChanged))=>{changed+=1;false},
+            Some(Err(forensic::Error::NegativeDepth|
+                forensic::Error::InvalidSnapshot))=>{invalid_depth+=1;excluded+=1;false},
+            Some(Err(_))=>{excluded+=1;false},
         };
         chain.update((event.raw_sha256.len() as u64).to_le_bytes());
         chain.update(event.raw_sha256.as_bytes());
@@ -261,12 +267,12 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
         next+=1;
     }
     if checkpoints.last().map_or(true,|c|c.asof_received_ns!=decision_ns){
-        checkpoints.push(checkpoint(&book,decision_ns,&last));
+        checkpoints.push(checkpoint(integrity.forensic_book(),decision_ns,&last));
     }
     let declared_rows=evidence.partition_proofs.iter()
         .try_fold(0usize,|sum,p|sum.checked_add(p.rows)).ok_or(Error::Capacity)?;
     let mut missing_evidence=Vec::new();
-    if missing_initial(book.status()){
+    if missing_initial(integrity.forensic_book().status()){
         missing_evidence.push("UNVERIFIED_HISTORICAL_INITIAL_SNAPSHOT".into());
     }
     // Missing channel evidence is not proof of clean subscription history.
@@ -275,6 +281,7 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
         missing_evidence.push("UNVERIFIED_FULL_SUBSCRIPTION_CONTINUITY".into());
     }
     if invalid_depth>0{missing_evidence.push("INVALID_DEPTH_OBSERVED".into());}
+    missing_evidence.push("UPSTREAM_FUTURE_ROWS_UNCOUNTED_BY_CALLBACK".into());
     missing_evidence.push("NO_INDEPENDENT_SETTLEMENT_EVIDENCE".into());
     missing_evidence.push("NO_VERIFIED_EXCHANGE_EXECUTION".into());
     let book_evidence=integrity.evidence(&evidence.channel_runs,
@@ -297,9 +304,10 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
         duplicate_observations:duplicates,conflicting_observations:conflicts,
         malformed_or_excluded_observations:excluded,
         future_observations_excluded:future,
+        future_exclusion_count_scope:"callback_only_upstream_filter_unquantified".into(),
         missing_snapshot_deltas:missing_snap,invalid_depth_observations:invalid_depth,
         session_change_observations:changed,channel_runs:evidence.channel_runs,
-        book_integrity:Some(book_evidence),checkpoints,initial_state:format!("{:?}",book.status()),missing_evidence,
+        book_integrity:Some(book_evidence),checkpoints,initial_state:format!("{:?}",integrity.forensic_book().status()),missing_evidence,
         decoded_hash_chain_sha256:format!("{:x}",chain.finalize()),
         independent_settlement_verified:false,venue_execution_verified:false,
     })
@@ -327,7 +335,9 @@ mod tests{
             first_applied_received_ns:Some(99),last_applied_received_ns:Some(99),
             source_clock_ahead_observations:0,duplicate_observations:0,
             conflicting_observations:0,malformed_or_excluded_observations:0,
-            future_observations_excluded:0,missing_snapshot_deltas:0,
+            future_observations_excluded:0,
+            future_exclusion_count_scope:"callback_only_upstream_filter_unquantified".into(),
+            missing_snapshot_deltas:0,
             invalid_depth_observations:0,session_change_observations:0,
             channel_runs:vec![],book_integrity:None,checkpoints:vec![fixture],
             initial_state:"PartialInitialization".into(),missing_evidence:vec![],
