@@ -12,7 +12,8 @@ use std::io::{Read,Write};
 use std::path::{Path,PathBuf};
 
 pub const MAX_ROWS_PER_PARTITION:usize=256;
-pub const MAX_PARTITIONS:usize=2_000;
+pub const MAX_PARTITIONS:usize=2_000; // legacy RAM mode
+pub const MAX_EXTERNAL_PARTITIONS:usize=100_000; // configurable bounded disk mode
 pub const MAX_INDEXED_EVENTS:usize=250_000;
 pub const MAX_PARTITION_BYTES:u64=8*1024*1024;
 pub const MAX_MANIFEST_BYTES:u64=1*1024*1024;
@@ -81,7 +82,9 @@ pub struct Archive {
     // When true, the paired transactional disk index is the identity authority.
     // The publisher must receive an explicit lookup callback per append.
     external_index_mode:bool,
-    manifests:BTreeMap<String,SealedPartition>,
+    manifests:BTreeMap<String,SealedPartition>, // legacy only
+    external_partition_count:usize,
+    external_partition_limit:usize,
     recovery:RecoveryReport,
 }
 fn hash(data:&[u8])->String {format!("{:x}",Sha256::digest(data))}
@@ -135,21 +138,49 @@ fn quarantine(root:&Path,p:&Path)->Result<(),Error>{
     fs::rename(p,&target)?;
     sync_dir(&root.join("quarantine"))?;Ok(())
 }
+
+fn read_sealed_manifest(root:&Path,path:&Path)->Result<SealedPartition,Error>{
+    if !path.is_file(){return Err(Error::InvalidManifest);}
+    let m:SealedPartition=serde_json::from_slice(&safe_read(path,MAX_MANIFEST_BYTES)?)?;
+    if m.format_version!=FORMAT||m.status!="sealed"||
+        !is_digest(&m.partition_id)||m.parquet_sha256!=m.partition_id||
+        m.events.len()!=m.rows||m.rows==0||m.rows>MAX_ROWS_PER_PARTITION||
+        path.file_name().and_then(|s|s.to_str())!=
+            Some(format!("{}.json",m.partition_id).as_str()){
+        return Err(Error::InvalidManifest);
+    }
+    if !data_path(root,&m.partition_id).is_file(){
+        return Err(Error::MissingCommittedPartition(m.partition_id));
+    }
+    let mut ids=std::collections::HashSet::new();
+    for e in &m.events{
+        if !valid_id(&e.id)||!is_digest(&e.row_sha256)||!ids.insert(e.id.as_str()){
+            return Err(Error::InvalidManifest);
+        }
+    }
+    Ok(m)
+}
+
 impl Archive {
     /// A new root is allowed; an existing root MUST contain our research marker.
     /// A single exclusive OS advisory lock prevents concurrent publishers and
     /// is released automatically after a crash.
     pub fn open(root:impl AsRef<Path>)->Result<Self,Error>{
-        Self::open_with_mode(root,false)
+        Self::open_with_mode(root,false,MAX_PARTITIONS)
     }
     /// Dedicated research mode for an external, transactional event-ID index.
     /// It never allocates the complete historical ID map in Rust heap memory.
     /// Callers MUST use publish_with_external_lookup, never plain publish.
     pub fn open_external_index(root:impl AsRef<Path>)->Result<Self,Error>{
-        Self::open_with_mode(root,true)
+        Self::open_external_index_with_limit(root,MAX_EXTERNAL_PARTITIONS)
     }
-    fn open_with_mode(root:impl AsRef<Path>,external_index_mode:bool)
+    pub fn open_external_index_with_limit(root:impl AsRef<Path>,cap:usize)
         ->Result<Self,Error>{
+        Self::open_with_mode(root,true,cap)
+    }
+    fn open_with_mode(root:impl AsRef<Path>,external_index_mode:bool,cap:usize)
+        ->Result<Self,Error>{
+        if cap==0||cap>MAX_EXTERNAL_PARTITIONS{return Err(Error::CapacityExceeded);}
         let root=root.as_ref();
         if root.exists(){
             if !root.join(MARKER).is_file(){return Err(Error::NotDedicatedResearchPath);}
@@ -167,6 +198,7 @@ impl Archive {
         }
         let mut archive=Self {root,_writer_lock:f,ids:HashMap::new(),
             external_index_mode,manifests:BTreeMap::new(),
+            external_partition_count:0,external_partition_limit:cap,
             recovery:RecoveryReport::default()};
         archive.load_index()?;
         archive.recover_uncommitted()?;
@@ -174,59 +206,53 @@ impl Archive {
     }
     pub fn recovery(&self)->RecoveryReport {self.recovery}
     pub fn indexed_events(&self)->usize {self.ids.len()}
-    pub fn committed_partitions(&self)->usize {self.manifests.len()}
+    pub fn committed_partitions(&self)->usize {
+        if self.external_index_mode{self.external_partition_count}
+        else{self.manifests.len()}
+    }
     fn load_index(&mut self)->Result<(),Error>{
-        let mut n=0;
+        let mut n=0usize;
         for item in fs::read_dir(self.root.join("manifests"))?{
-            n+=1;if n>MAX_PARTITIONS{return Err(Error::CapacityExceeded);}
+            n=n.checked_add(1).ok_or(Error::CapacityExceeded)?;
+            if n>self.external_partition_limit{return Err(Error::CapacityExceeded);}
             let item=item?;
             if !item.file_type()?.is_file(){return Err(Error::InvalidManifest);}
-            let p=item.path();
-            let m:SealedPartition=serde_json::from_slice(
-                &safe_read(&p,MAX_MANIFEST_BYTES)?)?;
-            if m.format_version!=FORMAT||m.status!="sealed"||
-                !is_digest(&m.partition_id)||m.parquet_sha256!=m.partition_id||
-                m.events.len()!=m.rows||m.rows==0||m.rows>MAX_ROWS_PER_PARTITION||
-                p.file_name().and_then(|s|s.to_str())!=
-                    Some(format!("{}.json",m.partition_id).as_str()) {
-                return Err(Error::InvalidManifest);
-            }
-            if !data_path(&self.root,&m.partition_id).is_file(){
-                return Err(Error::MissingCommittedPartition(m.partition_id));
-            }
-            if !self.external_index_mode &&
-                self.ids.len()+m.events.len()>MAX_INDEXED_EVENTS{
-                return Err(Error::CapacityExceeded);
-            }
-            for e in &m.events {
-                if !valid_id(&e.id)||!is_digest(&e.row_sha256){
-                    return Err(Error::InvalidManifest);
+            let m=read_sealed_manifest(&self.root,&item.path())?;
+            if !self.external_index_mode{
+                if self.ids.len()+m.events.len()>MAX_INDEXED_EVENTS{
+                    return Err(Error::CapacityExceeded);
                 }
-                if !self.external_index_mode &&
-                    self.ids.insert(e.id.clone(),e.row_sha256.clone()).is_some(){
-                    return Err(Error::InvalidManifest);
+                for e in &m.events{
+                    if self.ids.insert(e.id.clone(),e.row_sha256.clone()).is_some(){
+                        return Err(Error::InvalidManifest);
+                    }
                 }
+                self.manifests.insert(m.partition_id.clone(),m);
+            }else{
+                // Only the scalar partition count remains in memory.
+                self.external_partition_count=n;
             }
-            self.manifests.insert(m.partition_id.clone(),m);
         }
-        self.recovery.committed_partitions=self.manifests.len();
+        self.recovery.committed_partitions=self.committed_partitions();
         Ok(())
     }
     fn recover_uncommitted(&mut self)->Result<(),Error>{
         let mut seen=0;
         for e in fs::read_dir(self.root.join("pending"))?{
-            seen+=1;if seen>MAX_PARTITIONS{return Err(Error::CapacityExceeded);}
+            seen+=1;if seen>self.external_partition_limit{return Err(Error::CapacityExceeded);}
             let e=e?;if !e.file_type()?.is_file(){return Err(Error::InvalidInput);}
             quarantine(&self.root,&e.path())?;
             self.recovery.quarantined_temp_files+=1;
         }
         seen=0;
         for e in fs::read_dir(self.root.join("partitions"))?{
-            seen+=1;if seen>MAX_PARTITIONS{return Err(Error::CapacityExceeded);}
+            seen+=1;if seen>self.external_partition_limit{return Err(Error::CapacityExceeded);}
             let e=e?;if !e.file_type()?.is_file(){return Err(Error::InvalidInput);}
             let stem=e.path().file_stem().and_then(|s|s.to_str())
                 .ok_or(Error::InvalidInput)?.to_owned();
-            if !self.manifests.contains_key(&stem){
+            if !(if self.external_index_mode{
+                manifest_path(&self.root,&stem).is_file()
+            }else{self.manifests.contains_key(&stem)}){
                 quarantine(&self.root,&e.path())?;
                 self.recovery.quarantined_orphan_partitions+=1;
             }
@@ -291,7 +317,7 @@ impl Archive {
         if fresh.is_empty(){return Ok(PublishResult{
             partition_id:None,added:0,duplicates:dup,
             durability:Durability::FileSyncedDirectoryNotProven});}
-        if self.manifests.len()>=MAX_PARTITIONS ||
+        if self.committed_partitions()>=self.external_partition_limit ||
             (!self.external_index_mode &&
                 self.ids.len()+fresh.len()>MAX_INDEXED_EVENTS){
             return Err(Error::CapacityExceeded);
@@ -331,7 +357,11 @@ impl Archive {
         if !self.external_index_mode{
             for r in &m.events {self.ids.insert(r.id.clone(),r.row_sha256.clone());}
         }
-        self.manifests.insert(id.clone(),m);
+        if self.external_index_mode{
+            self.external_partition_count+=1;
+        }else{
+            self.manifests.insert(id.clone(),m);
+        }
         Ok(PublishResult{partition_id:Some(id),added:fresh.len(),duplicates:dup,
             durability:if durable_data_dir&&durable_manifest_dir{
                 Durability::FileAndDirectorySynced
@@ -339,18 +369,8 @@ impl Archive {
     }
     /// Reads only bounded known sealed partitions; no drive scan.
     pub fn verify_all(&self)->Result<usize,Error>{
-        for m in self.manifests.values(){
-            let bytes=safe_read(&data_path(&self.root,&m.partition_id),MAX_PARTITION_BYTES)?;
-            if hash(&bytes)!=m.parquet_sha256{
-                return Err(Error::DigestMismatch(m.partition_id.clone()));
-            }
-            let pm=ParquetManifest{rows:m.rows,sha256:m.parquet_sha256.clone(),
-                received_min_ns:m.received_min_ns,
-                received_max_ns:m.received_max_ns,format:"parquet_zstd_v1"};
-            verify_finalized(&bytes,&pm)
-                .map_err(|x|Error::Parquet(format!("{x:?}")))?;
-        }
-        Ok(self.manifests.len())
+        self.visit_verified_rows(|_,_,_|Ok(()))?;
+        Ok(self.committed_partitions())
     }
 }
 
@@ -501,17 +521,38 @@ impl Archive {
         &self,partition_id:&str,mut callback:F
     )->Result<(),Error>
     where F:FnMut(&SealedPartition,&EventIdentity,&Row)->Result<(),Error>{
-        let manifest=self.manifests.get(partition_id).ok_or_else(||
-            Error::MissingCommittedPartition(partition_id.to_owned()))?;
-        self.visit_one_verified(manifest,&mut callback)
+        if self.external_index_mode{
+            if !is_digest(partition_id){return Err(Error::InvalidManifest);}
+            let path=manifest_path(&self.root,partition_id);
+            if !path.is_file(){return Err(Error::MissingCommittedPartition(partition_id.into()));}
+            let manifest=read_sealed_manifest(&self.root,&path)?;
+            self.visit_one_verified(&manifest,&mut callback)
+        }else{
+            let manifest=self.manifests.get(partition_id).ok_or_else(||
+                Error::MissingCommittedPartition(partition_id.to_owned()))?;
+            self.visit_one_verified(manifest,&mut callback)
+        }
     }
 
     /// Reads only previously sealed and checksum-verified rows. The callback
     /// receives one row at a time; partitions remain strictly bounded.
     pub fn visit_verified_rows<F>(&self,mut callback:F)->Result<(),Error>
     where F:FnMut(&SealedPartition,&EventIdentity,&Row)->Result<(),Error>{
-        for manifest in self.manifests.values(){
-            self.visit_one_verified(manifest,&mut callback)?;
+        if self.external_index_mode{
+            let mut count=0usize;
+            for entry in fs::read_dir(self.root.join("manifests"))?{
+                let entry=entry?;
+                if !entry.file_type()?.is_file(){return Err(Error::InvalidManifest);}
+                count+=1;
+                if count>self.external_partition_limit{return Err(Error::CapacityExceeded);}
+                let manifest=read_sealed_manifest(&self.root,&entry.path())?;
+                self.visit_one_verified(&manifest,&mut callback)?;
+            }
+            if count!=self.external_partition_count{return Err(Error::InvalidManifest);}
+        }else{
+            for manifest in self.manifests.values(){
+                self.visit_one_verified(manifest,&mut callback)?;
+            }
         }
         Ok(())
     }
