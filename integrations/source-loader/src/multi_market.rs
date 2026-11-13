@@ -301,6 +301,43 @@ pub fn run_batch(specs:&[MarketSpec],manifest_bytes:&[u8],
         source_manifest_sha256:catalog_sha,markets,next_checkpoints,
         no_live_execution:true,no_empirical_pnl:true})
 }
+/// Source-to-execution integration is deliberately guarded. A top-of-book
+/// ReplayReport cannot be expanded into L2 depth or a real fill. The caller
+/// must provide separately reconstructed depth and strict source witness.
+pub fn simulate_eligible_historical_order(
+    market:&MarketBatchOutcome,
+    intent:&phoenix_sim::historical::LimitIntent,
+    books:&[phoenix_sim::historical::FractionalBook],
+    tape:phoenix_sim::historical::TradeTape<'_>,
+    source:&phoenix_sim::historical::SourceWindowEvidence,
+    fees:&impl phoenix_sim::historical::HistoricalFeeSource,
+)->Result<phoenix_sim::historical::ExecutionReport,Error>{
+    if !market.historical_execution_eligible||
+        !market.report_exclusions.is_empty()||
+        market.ticker!=intent.market||
+        market.ticker!=source.market||
+        market.historical_fee_available==false||
+        market.contract_rules_available==false{
+        return Err(Error::InvalidCheckpoint);
+    }
+    let replay=market.replay_json.as_deref()
+        .ok_or(Error::InvalidCheckpoint)?;
+    if market.replay_sha256.as_deref()!=Some(sha(replay.as_bytes()).as_str()){
+        return Err(Error::InvalidCheckpoint);
+    }
+    let json:serde_json::Value=serde_json::from_str(replay)
+        .map_err(|_|Error::InvalidCheckpoint)?;
+    if json.pointer("/book_integrity/complete_subscription_history_verified")
+        .and_then(|v|v.as_bool())!=Some(true)||
+        json.pointer("/book_integrity/snapshot_origin_sha256")
+            .and_then(|v|v.as_str())!=Some(source.book_sha256.as_str())||
+        json.get("market_ticker").and_then(|v|v.as_str())!=Some(intent.market.as_str()){
+        return Err(Error::InvalidCheckpoint);
+    }
+    phoenix_sim::historical::simulate_source_window(
+        intent,books,tape,source,fees)
+        .map_err(|_|Error::InvalidCheckpoint)
+}
 /// A consumer may only link a separately reconstructed and authenticated
 /// full-depth book to a replay; top-of-book checkpoint is never enough.
 pub fn reject_unproven_execution_handoff(
