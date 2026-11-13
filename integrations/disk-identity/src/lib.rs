@@ -96,6 +96,29 @@ impl Index {
         }
         Ok(n)
     }
+    /// Cursor-based page of partition IDs. The redb B+tree seeks to the
+    /// exclusive cursor rather than rereading all prior keys. The maximum
+    /// returned heap allocation is limited to 512 partition identifiers.
+    pub fn partition_page(&self,after:Option<&str>,limit:usize)
+        ->Result<Vec<String>,Error>{
+        if limit==0||limit>512||after.is_some_and(|s|!sha_ok(s)){
+            return Err(Error::InvalidInput);
+        }
+        let tx=self.db.begin_read().map_err(io)?;
+        let table=tx.open_table(PARTITIONS).map_err(io)?;
+        let mut range=if let Some(cursor)=after{
+            table.range((std::ops::Bound::Excluded(cursor),
+                std::ops::Bound::Unbounded)).map_err(io)?
+        }else{
+            table.iter().map_err(io)?
+        };
+        let mut page=Vec::with_capacity(limit);
+        for entry in range.by_ref().take(limit){
+            let (key,_)=entry.map_err(io)?;
+            page.push(key.value().to_owned());
+        }
+        Ok(page)
+    }
     pub fn partition_indexed(&self,sha:&str)->Result<bool,Error>{
         if !sha_ok(sha){return Err(Error::InvalidInput);}
         let tx=self.db.begin_read().map_err(io)?;
@@ -212,6 +235,55 @@ mod tests{
         }).unwrap();
         assert_eq!((count,observed),(40,40));
         assert_eq!(idx.get("market:event:39").unwrap(),Some(mh));
+    }
+    #[test]
+    fn cursor_pagination_is_exclusive_deterministic_and_bounded(){
+        let t=TempDir::new().unwrap();let db=Index::open(root(&t)).unwrap();
+        let mh=sha('a');
+        for n in 0..37u32{
+            let part=format!("{n:064x}");
+            let event=format!("event:{n}");
+            db.commit_verified_partition(&part,&mh,&[(event.as_str(),mh.as_str())]).unwrap();
+        }
+        let mut all=Vec::new();
+        let mut cursor:Option<String>=None;
+        loop{
+            let page=db.partition_page(cursor.as_deref(),7).unwrap();
+            if page.is_empty(){break;}
+            assert!(page.len()<=7);
+            cursor=page.last().cloned();
+            all.extend(page);
+        }
+        assert_eq!(all.len(),37);
+        assert!(all.windows(2).all(|p|p[0]<p[1]));
+        assert!(db.partition_page(cursor.as_deref(),7).unwrap().is_empty());
+        assert_eq!(db.partition_page(None,513),Err(Error::InvalidInput));
+    }
+    /// Explicit opt-in stress regression for the final local benchmark
+    /// campaign. Excluded from ordinary unit tests only because of disk I/O.
+    #[test]
+    #[ignore = "final local scale campaign: ~1,048,576 logical identities, 4096 ACID commits"]
+    fn million_logical_ids_in_bounded_256_id_transactions(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let digest=sha('f');
+        {
+            let db=Index::open(&root).unwrap();
+            for p in 0..4096u32{
+                let partition=format!("{p:064x}");
+                let owned=(0..256u32).map(|n|{
+                    (format!("{p}:{n}"),digest.clone())
+                }).collect::<Vec<_>>();
+                let refs=owned.iter().map(|(a,b)|(a.as_str(),b.as_str()))
+                    .collect::<Vec<_>>();
+                let result=db.commit_verified_partition(&partition,&digest,&refs).unwrap();
+                assert_eq!(result.inserted,256);
+            }
+        }
+        let db=Index::open(&root).unwrap();
+        let mut partitions=0usize;
+        db.visit_partition_ids(|_|{partitions+=1;Ok(())}).unwrap();
+        assert_eq!(partitions,4096);
+        assert_eq!(db.get("4095:255").unwrap(),Some(digest));
     }
     #[test]
     fn batch_is_bounded_to_existing_partition_size(){
