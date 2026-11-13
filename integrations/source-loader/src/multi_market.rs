@@ -115,7 +115,8 @@ fn verify_spec(s:&MarketSpec)->Result<(),Error>{
 fn fingerprint(s:&MarketSpec,catalog_sha:&str,revision:&str,
     entries:&BTreeMap<String,String>)->Result<String,Error>{
     let mut hash=Sha256::new();
-    for val in [&s.ticker,&s.event,&s.series,catalog_sha,revision]{
+    for val in [s.ticker.as_str(),s.event.as_str(),s.series.as_str(),
+        catalog_sha,revision]{
         hash.update((val.len() as u64).to_le_bytes());
         hash.update(val.as_bytes());
     }
