@@ -178,6 +178,26 @@ mod tests {
         fs::write(file,serde_json::to_vec(&data).unwrap()).unwrap();
         assert!(matches!(IndexedArchive::open(&path),Err(Error::Archive(_))));
     }
+    #[test]fn four_256_event_sealed_partitions_survive_reopen(){
+        let t=TempDir::new().unwrap();
+        let mut a=IndexedArchive::open(root(&t)).unwrap();
+        for n in 0..4u64 {
+            let entries=(0..256u64).map(|k|{
+                let seq=n*256+k+1;
+                event(&format!("p{n}:{k}"),seq)
+            }).collect::<Vec<_>>();
+            let outcome=a.publish(scope(),&entries).unwrap();
+            assert_eq!(outcome.added,256);
+        }
+        assert!(a.find("p0:0").unwrap().is_some());
+        assert!(a.find("p3:255").unwrap().is_some());
+        drop(a);
+        let b=IndexedArchive::open(root(&t)).unwrap();
+        assert_eq!(b.recovery().sealed,4);
+        assert_eq!(b.recovery().event_references,1024);
+        assert_eq!(b.recovery().already_indexed,4);
+        assert_eq!(b.recovery().replayed,0);
+    }
     #[test]fn unknown_root_and_orphan_index_fail_closed(){
         let t=TempDir::new().unwrap();let path=root(&t);
         fs::create_dir(&path).unwrap();
