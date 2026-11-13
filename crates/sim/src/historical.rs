@@ -80,6 +80,58 @@ pub struct TradeTape<'a>{
     pub complete_for_window:bool,
     pub prints:&'a [ConsumingPrint],
 }
+/// Explicit complete source-window witness. This checks consistency, not
+/// cryptographic authentication of third-party history. The source importer
+/// must independently verify every digest/sequence before supplying it.
+#[derive(Debug,Clone)]
+pub struct SourceWindowEvidence{
+    pub market:String,pub session_id:String,
+    pub manifest_sha256:String,pub book_sha256:String,
+    pub tape_sha256:String,pub first_received_ns:i64,
+    pub last_received_ns:i64,pub tape_first_received_ns:i64,
+    pub tape_last_received_ns:i64,
+    pub channel_continuity_verified:bool,
+    pub snapshot_origin_verified:bool,
+    pub tape_coverage_verified:bool,
+    pub missing_channel_sequences:u64,
+    pub duplicate_or_regressing_sequences:u64,
+}
+/// Strict gate rejects missing verification or incompatible sessions; no
+/// caller boolean or a single SHA is itself proof of external authenticity.
+pub fn simulate_source_window(o:&LimitIntent,books:&[FractionalBook],
+    tape:TradeTape<'_>,proof:&SourceWindowEvidence,
+    fee:&impl HistoricalFeeSource)->Result<ExecutionReport,Error>{
+    validate_intent(o)?;
+    let b=select_book(o,books)?;
+    if proof.market!=o.market||proof.session_id!=b.session_id||
+        proof.book_sha256!=b.snapshot_sha256||
+        !digest(&proof.manifest_sha256)||!digest(&proof.book_sha256)||
+        !digest(&proof.tape_sha256)||
+        proof.first_received_ns<=0||
+        proof.last_received_ns<proof.first_received_ns||
+        proof.tape_last_received_ns<proof.tape_first_received_ns||
+        b.received_ns<proof.first_received_ns||
+        b.received_ns>proof.last_received_ns||
+        o.arrival_ns>proof.last_received_ns||
+        !proof.channel_continuity_verified||
+        !proof.snapshot_origin_verified||
+        proof.missing_channel_sequences>0||
+        proof.duplicate_or_regressing_sequences>0 {
+        return Err(Error::UnverifiedSource);
+    }
+    if o.role==LiquidityRole::Maker{
+        if !proof.tape_coverage_verified||!tape.complete_for_window||
+            proof.tape_first_received_ns>o.arrival_ns||
+            proof.tape_last_received_ns<o.deadline_ns {
+            return Err(Error::IncompleteTape);
+        }
+    }
+    let mut r=simulate(o,books,tape,fee)?;
+    r.assumptions.push("SOURCE_WINDOW_COHERENCE_CHECKED_NOT_PROVIDER_AUTHENTICATED".into());
+    r.assumptions.push(format!("SOURCE_MANIFEST_SHA256={}",proof.manifest_sha256));
+    r.assumptions.push(format!("SOURCE_TAPE_SHA256={}",proof.tape_sha256));
+    Ok(r)
+}
 #[derive(Debug,Clone)]
 pub struct FeeQuote{
     /// Fixed-point 1/10,000 USD fee units (same scale as domain::Money).
@@ -199,6 +251,7 @@ pub fn simulate(o:&LimitIntent,books:&[FractionalBook],tape:TradeTape<'_>,
     r.quote_received_ns=Some(b.received_ns);
     r.quote_source_sha256=Some(b.snapshot_sha256.clone());
     r.assumptions.push("RECEIPT_TIME_CAUSAL_BOOK_SNAPSHOT".into());
+    r.assumptions.push("HYPOTHETICAL_MODEL_SOURCE_NOT_AUTHENTICATED".into());
     let effective_deadline=o.cancelled_at_ns
         .map_or(o.deadline_ns,|t|t.min(o.deadline_ns));
     if o.role==LiquidityRole::Taker{
@@ -385,6 +438,35 @@ mod tests{
         let mut intent=o(LiquidityRole::Taker);intent.signal_received_ns=21;
         assert_eq!(simulate(&intent,&[b()],t(&[]),&FixtureFee)
             .unwrap_err(),Error::FutureSignal);
+    }
+    #[test]fn strict_window_requires_session_and_complete_channel_and_tape(){
+        let order=o(LiquidityRole::Maker);
+        let proof=SourceWindowEvidence{market:"BTC".into(),
+            session_id:"session".into(),manifest_sha256:"b".repeat(64),
+            book_sha256:"a".repeat(64),tape_sha256:"c".repeat(64),
+            first_received_ns:1,last_received_ns:100,
+            tape_first_received_ns:20,tape_last_received_ns:100,
+            channel_continuity_verified:true,snapshot_origin_verified:true,
+            tape_coverage_verified:false,missing_channel_sequences:0,
+            duplicate_or_regressing_sequences:0};
+        assert_eq!(simulate_source_window(&order,&[b()],t(&[]),&proof,&FixtureFee)
+            .unwrap_err(),Error::IncompleteTape);
+        let mut inconsistent=proof;inconsistent.session_id="foreign".into();
+        assert_eq!(simulate_source_window(&o(LiquidityRole::Taker),
+            &[b()],t(&[]),&inconsistent,&FixtureFee)
+            .unwrap_err(),Error::UnverifiedSource);
+    }
+    #[test]fn source_window_rejects_missing_sequence_history(){
+        let proof=SourceWindowEvidence{market:"BTC".into(),
+            session_id:"session".into(),manifest_sha256:"b".repeat(64),
+            book_sha256:"a".repeat(64),tape_sha256:"c".repeat(64),
+            first_received_ns:1,last_received_ns:100,
+            tape_first_received_ns:20,tape_last_received_ns:100,
+            channel_continuity_verified:true,snapshot_origin_verified:true,
+            tape_coverage_verified:true,missing_channel_sequences:1,
+            duplicate_or_regressing_sequences:0};
+        assert_eq!(simulate_source_window(&o(LiquidityRole::Taker),
+            &[b()],t(&[]),&proof,&FixtureFee).unwrap_err(),Error::UnverifiedSource);
     }
     #[test]fn scenario_list_is_bounded(){
         let orders=vec![o(LiquidityRole::Taker);17];
