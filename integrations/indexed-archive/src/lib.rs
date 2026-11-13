@@ -16,6 +16,28 @@ fn archive_error(e:impl std::fmt::Debug)->Error{Error::Archive(format!("{e:?}"))
 fn index_error(e:impl std::fmt::Debug)->Error{Error::Index(format!("{e:?}"))}
 fn hash(bytes:&[u8])->String{format!("{:x}",Sha256::digest(bytes))}
 fn sha_valid(s:&str)->bool{s.len()==64&&s.bytes().all(|c|c.is_ascii_hexdigit())}
+
+fn reject_reparse(path:&Path)->Result<(),Error>{
+    if path.components().any(|p|matches!(p,std::path::Component::ParentDir)){
+        return Err(Error::UnsafeRoot);
+    }
+    for part in path.ancestors(){
+        match fs::symlink_metadata(part){
+            Ok(meta)=>{
+                if meta.file_type().is_symlink(){return Err(Error::UnsafeRoot);}
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    if meta.file_attributes()&0x400!=0{return Err(Error::UnsafeRoot);}
+                }
+            },
+            Err(e) if e.kind()==std::io::ErrorKind::NotFound=>{},
+            Err(e)=>return Err(io(e)),
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub enum Fault{
     None,AfterSealedManifest,AfterIndexCommit,BeforeIndexTransaction,
@@ -45,6 +67,8 @@ impl IndexedArchive {
             ["TradingNextData","KalshiData","KalshiRuntime","paper15m_runtime"]
                 .iter().any(|protected|n.eq_ignore_ascii_case(protected))
         }){return Err(Error::UnsafeRoot);}
+        reject_reparse(root)?;
+        reject_reparse(&root.join(MARKER))?;
         if root.exists(){
             if fs::read(root.join(MARKER)).map_err(|_|Error::UnsafeRoot)?!=MAGIC {
                 return Err(Error::UnsafeRoot);
@@ -595,6 +619,16 @@ mod tests {
         let before=fs::read(&path).unwrap();
         assert!(IndexedArchive::open(&root).is_err());
         assert_eq!(fs::read(&path).unwrap(),before);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn wrapper_rejects_symlink_before_creating_child_paths(){
+        use std::os::unix::fs::symlink;
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let archive=IndexedArchive::open(&root).unwrap();drop(archive);
+        let alias=t.path().join("linked-root");
+        symlink(&root,&alias).unwrap();
+        assert!(matches!(IndexedArchive::open(&alias),Err(Error::UnsafeRoot)));
     }
     #[test]fn unknown_root_and_orphan_index_fail_closed(){
         let t=TempDir::new().unwrap();let path=root(&t);
