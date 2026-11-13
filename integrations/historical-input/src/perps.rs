@@ -114,9 +114,8 @@ pub struct PartitionContract{
 fn power10(n:u32)->Result<i128,Error>{
     10_i128.checked_pow(n).ok_or(Error::InvalidDecimal)
 }
-fn fixed(v:&Value,key:&str,scale:u32)->Result<i128,Error>{
+fn fixed_from_text(raw:&str,scale:u32)->Result<i128,Error>{
     // Do not convert JSON number/f64 approximations to financial precision.
-    let raw=v.get(key).and_then(Value::as_str).ok_or(Error::InvalidField)?;
     let exact=decimal_exact(raw,scale).map_err(|_|Error::InvalidDecimal)?;
     let q=if scale<=TARGET_SCALE{
         exact.checked_mul(power10(TARGET_SCALE-scale)?)
@@ -127,6 +126,10 @@ fn fixed(v:&Value,key:&str,scale:u32)->Result<i128,Error>{
         exact/d
     };
     Ok(q)
+}
+fn fixed(v:&Value,key:&str,scale:u32)->Result<i128,Error>{
+    let raw=v.get(key).and_then(Value::as_str).ok_or(Error::InvalidField)?;
+    fixed_from_text(raw,scale)
 }
 fn price(v:&Value,key:&str,s:&PerpsSchema)->Result<i128,Error>{
     let x=fixed(v,key,s.price_source_scale)?;
@@ -159,9 +162,9 @@ fn levels(v:&Value,key:&str,s:&PerpsSchema,
         if cols.len()!=2||!cols[0].is_string()||!cols[1].is_string(){
             return Err(Error::InvalidDepth);
         }
-        let price=fixed(&serde_json::json!({"p":cols[0]}),"p",
+        let price=fixed_from_text(cols[0].as_str().ok_or(Error::InvalidDepth)?,
             s.price_source_scale)?;
-        let qty=fixed(&serde_json::json!({"q":cols[1]}),"q",
+        let qty=fixed_from_text(cols[1].as_str().ok_or(Error::InvalidDepth)?,
             s.quantity_source_scale)?;
         if price<=0||qty<=0{return Err(Error::InvalidDepth);}
         let product=qty.checked_mul(i128::from(s.contracts_to_base_numerator))
@@ -344,6 +347,21 @@ mod tests{
         let mut wrong=contract(&schema,1);
         wrong.expected_schema_sha256="c".repeat(64);
         assert!(normalize_records(&[r],&schema,&wrong).is_err());
+    }
+    #[test]fn contract_multiplier_and_depth_precision_never_round(){
+        let mut schema=s("VENUE_A");
+        schema.contracts_to_base_numerator=3;
+        schema.contracts_to_base_denominator=2;
+        let trade=row("trade",
+            r#"{"price":"123.12345678","quantity":"2","aggressor":"sell"}"#,1);
+        let result=normalize_records(&[trade],&schema,
+            &contract(&schema,1)).unwrap();
+        assert!(matches!(result[0].event,PerpsEvent::Trade{
+            price_1e8:12312345678,quantity_base_1e8:300000000,..}));
+        let depth=row("depth",r#"{"bids":[["100","0.00000001"]],
+            "asks":[["101","1"]]}"#,2);
+        assert!(matches!(normalize_records(&[depth],&schema,
+            &contract(&schema,1)),Err(Error::LossyConversion)));
     }
     #[test]fn duplicate_sequence_with_changed_payload_is_rejected(){
         let schema=s("VENUE_A");
