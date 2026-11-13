@@ -1,6 +1,8 @@
 //! Isolated research-only integration: sealed Parquet first, ACID index second.
 //! No production collector, live SQLite/WAL or exchange endpoints.
-use phoenix_disk_identity::Index;
+use phoenix_disk_identity::{Index,IndexFault};
+use phoenix_durable_archive::{Fault as ArchiveFault,Durability};
+use phoenix_durable_archive::recovery::{RecoverySummary,PublicationState,Assurance};
 use phoenix_durable_archive::{Archive,EventRow,PublishResult,SealedPartition,SourceScope,MAX_EXTERNAL_PARTITIONS,MAX_MANIFEST_BYTES};
 use sha2::{Digest,Sha256};
 use std::{fs::{self,File,OpenOptions},io::{Read,Write},path::{Path,PathBuf}};
@@ -15,9 +17,17 @@ fn index_error(e:impl std::fmt::Debug)->Error{Error::Index(format!("{e:?}"))}
 fn hash(bytes:&[u8])->String{format!("{:x}",Sha256::digest(bytes))}
 fn sha_valid(s:&str)->bool{s.len()==64&&s.bytes().all(|c|c.is_ascii_hexdigit())}
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
-pub enum Fault{None,AfterSealedManifest,AfterIndexCommit}
+pub enum Fault{
+    None,AfterSealedManifest,AfterIndexCommit,BeforeIndexTransaction,
+    AfterRowsBeforeMarker,AfterMarkerBeforeCommit,
+    AfterIndexCommitBeforeAcknowledgement,
+}
 #[derive(Debug,Clone,PartialEq,Eq,Default)]
-pub struct Recovery{pub sealed:usize,pub replayed:usize,pub already_indexed:usize,pub event_references:usize}
+pub struct Recovery{
+    pub sealed:usize,pub replayed:usize,pub already_indexed:usize,
+    pub event_references:usize,pub observed_duplicates:usize,
+    pub sample_partition_hashes:Vec<String>,
+}
 pub struct IndexedArchive{root:PathBuf,archive:Archive,index:Index,poisoned:bool,recovery:Recovery}
 impl IndexedArchive {
     pub fn open(path:impl AsRef<Path>)->Result<Self,Error>{
@@ -50,6 +60,31 @@ impl IndexedArchive {
         Ok(this)
     }
     pub fn recovery(&self)->&Recovery{&self.recovery}
+    /// A bounded structured summary. Unknown data loss remains None; a clean
+    /// journal is not proof of complete upstream market-data capture.
+    pub fn recovery_summary(&self)->RecoverySummary{
+        let mut out=self.archive.recovery_summary();
+        out.sealed_partitions_found=self.recovery.sealed;
+        out.index_transactions_recovered=self.recovery.replayed;
+        out.already_indexed_partitions=self.recovery.already_indexed;
+        out.verified_event_references=self.recovery.event_references;
+        out.duplicate_event_identities=if self.recovery.observed_duplicates>0{
+            Some(self.recovery.observed_duplicates)
+        }else{None};
+        for id in &self.recovery.sample_partition_hashes{out.record_evidence(id);}
+        out.publication_state=if self.poisoned{
+            out.manual_intervention_required=true;
+            out.errors.push("WRITER_POISONED_REOPEN_REQUIRED".into());
+            PublicationState::DurabilityUncertain
+        }else{PublicationState::FullyReconciled};
+        out.assurance=if self.poisoned{Assurance::Uncertain}
+        else if cfg!(windows){Assurance::FileSyncedDirectoryNotProven}
+        else{Assurance::FileAndDirectorySyncedSoftwareLevel};
+        out
+    }
+    pub fn recovery_report_json(&self)->Result<String,Error>{
+        serde_json::to_string_pretty(&self.recovery_summary()).map_err(io)
+    }
     pub fn find(&self,id:&str)->Result<Option<String>,Error>{self.index.get(id).map_err(index_error)}
     /// Disk-backed, exclusive-cursor partition listing. At most 512 strings
     /// are returned, independent of the total archive history.
@@ -124,6 +159,9 @@ impl IndexedArchive {
             }else{
                 recovered.replayed+=1;
             }
+            if recovered.sample_partition_hashes.len()<8{
+                recovered.sample_partition_hashes.push(m.partition_id.clone());
+            }
         }
         if recovered.sealed!=self.archive.committed_partitions(){
             return Err(Error::InvalidManifest);
@@ -134,7 +172,7 @@ impl IndexedArchive {
     /// Incrementally promote only the newly sealed partition. Cold opens still
     /// perform full archive and index reconciliation; appends must not perform
     /// an O(total historical rows) validation on every publication.
-    fn commit_just_sealed(&mut self,id:&str)->Result<(),Error>{
+    fn commit_just_sealed(&mut self,id:&str,fault:IndexFault)->Result<(),Error>{
         if !sha_valid(id){return Err(Error::InvalidManifest);}
         let path=self.root.join("sealed/manifests").join(format!("{id}.json"));
         if fs::metadata(&path).map_err(io)?.len()>MAX_MANIFEST_BYTES{
@@ -172,35 +210,69 @@ impl IndexedArchive {
         }
         let events=verified.iter().map(|(id,digest)|(id.as_str(),digest.as_str()))
             .collect::<Vec<_>>();
-        let outcome=self.index.commit_verified_partition(
-            id,&hash(&manifest_bytes),&events).map_err(index_error)?;
+        let outcome=self.index.commit_verified_partition_fault(
+            id,&hash(&manifest_bytes),&events,fault).map_err(index_error)?;
         self.recovery.sealed+=1;
         self.recovery.event_references+=events.len();
         if outcome.already_committed{self.recovery.already_indexed+=1;}
         else{self.recovery.replayed+=1;}
+        if self.recovery.sample_partition_hashes.len()<8{
+            self.recovery.sample_partition_hashes.push(id.to_owned());
+        }
         Ok(())
     }
 
     pub fn publish(&mut self,scope:SourceScope,rows:&[EventRow])
-        ->Result<PublishResult,Error>{self.publish_fault(scope,rows,Fault::None)}
-    pub fn publish_fault(&mut self,scope:SourceScope,rows:&[EventRow],fault:Fault)
         ->Result<PublishResult,Error>{
+        self.publish_with_faults(scope,rows,Fault::None,ArchiveFault::None)
+    }
+    pub fn publish_fault(&mut self,scope:SourceScope,rows:&[EventRow],
+        fault:Fault)->Result<PublishResult,Error>{
+        self.publish_with_faults(scope,rows,fault,ArchiveFault::None)
+    }
+    /// Source-stage crash injection, not a production order endpoint.
+    pub fn publish_archive_fault(&mut self,scope:SourceScope,
+        rows:&[EventRow],fault:ArchiveFault)->Result<PublishResult,Error>{
+        self.publish_with_faults(scope,rows,Fault::None,fault)
+    }
+    fn publish_with_faults(&mut self,scope:SourceScope,rows:&[EventRow],
+        fault:Fault,archive_fault:ArchiveFault)->Result<PublishResult,Error>{
         if self.poisoned{return Err(Error::Poisoned);}
-        // This redb database has already been reconciled from all verified
-        // sealed manifests during open. It is now the authoritative duplicate
-        // lookup, so archive publication does not cache every historical ID.
         let disk_index=&self.index;
-        let result=self.archive.publish_with_external_lookup(scope,rows,|id|{
-            disk_index.get(id).map_err(|err|
-                phoenix_durable_archive::Error::ExternalIndex(format!("{err:?}")))
-        }).map_err(archive_error)?;
+        let result=self.archive.publish_with_external_lookup_fault(
+            scope,rows,|id|disk_index.get(id).map_err(|err|
+                phoenix_durable_archive::Error::ExternalIndex(format!("{err:?}"))),
+            archive_fault);
+        let result=match result{
+            Ok(v)=>v,
+            Err(e)=>{
+                // A failed publication may have passed the sealed-manifest
+                // boundary. Never allow a second publication without a
+                // recovered, fully verified cold reopen.
+                if !matches!(e,phoenix_durable_archive::Error::InvalidInput|
+                    phoenix_durable_archive::Error::DuplicateConflict(_)|
+                    phoenix_durable_archive::Error::CapacityExceeded){
+                    self.poisoned=true;
+                }
+                return Err(archive_error(e));
+            }
+        };
+        self.recovery.observed_duplicates=self.recovery.observed_duplicates
+            .saturating_add(result.duplicates);
         if result.partition_id.is_none(){return Ok(result);}
-        if fault==Fault::AfterSealedManifest {
+        if fault==Fault::AfterSealedManifest{
             self.poisoned=true;return Err(Error::Interrupted);
         }
-        // Reconcile exactly the newly sealed manifest; reopening still
-        // performs full evidence verification and repairs missing transactions.
-        if let Err(err)=self.commit_just_sealed(result.partition_id.as_deref().unwrap()){
+        let index_fault=match fault{
+            Fault::BeforeIndexTransaction=>IndexFault::RejectTransaction,
+            Fault::AfterRowsBeforeMarker=>IndexFault::AfterRowInsertBeforeMarker,
+            Fault::AfterMarkerBeforeCommit=>IndexFault::AfterMarkerBeforeCommit,
+            Fault::AfterIndexCommitBeforeAcknowledgement=>
+                IndexFault::AfterCommitBeforeAcknowledgement,
+            _=>IndexFault::None,
+        };
+        if let Err(err)=self.commit_just_sealed(
+            result.partition_id.as_deref().unwrap(),index_fault){
             self.poisoned=true;
             return Err(err);
         }
@@ -209,6 +281,7 @@ impl IndexedArchive {
         }
         Ok(result)
     }
+
 }
 
 #[cfg(test)]
