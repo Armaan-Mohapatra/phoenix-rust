@@ -270,6 +270,8 @@ pub struct SettlementAssessment{
     pub official_source_sha256:Option<String>,
     pub primary_source_sha256:Option<String>,
     pub blocked_reasons:Vec<String>,
+    // Not publicly constructible: only a trusted primary verifier can set it.
+    authenticated_primary:bool,
 }
 fn as_text(side:Side)->String{
     match side{Side::Yes=>"yes".into(),Side::No=>"no".into()}
@@ -281,18 +283,12 @@ fn official_winner(o:&OfficialMarketEvidence)->Option<Side>{
         _=>None,
     }
 }
-/// Requires authenticated primary origin, exact window and ticker matching.
-/// Neither an archived Kalshi relay nor different filenames grant independence.
-pub fn corroborate_primary(
-    contract:&ContractDefinition,
-    official:&OfficialMarketEvidence,
-    source:&PrimaryImport,verifier:&impl PrimaryProvenanceVerifier)
-    ->Result<SettlementAssessment,Error>{
+/// Structural 1Hz completeness test only. Passing does NOT authenticate the
+/// origin of local samples or their compliance with a real contract.
+pub fn validate_primary_windows(
+    contract:&ContractDefinition,source:&PrimaryImport)
+    ->Result<phoenix_settlement::WindowComparison,Error>{
     contract.validate()?;
-    if official.ticker!=contract.ticker||official.market_id!=contract.market_id{
-        return Err(Error::WrongMarket);
-    }
-    let official_side=official_winner(official).ok_or(Error::UnknownOfficial)?;
     if source.provider!=contract.reference_provider||
         source.benchmark_id!=contract.benchmark_id||
         source.methodology_revision!=contract.methodology_revision||
@@ -305,13 +301,30 @@ pub fn corroborate_primary(
         source.first_second_utc!=contract.window.opening_start_sec{
         return Err(Error::InvalidPrimary);
     }
+    let source_ticks=source.ticks.iter().map(|t|IndexTick{
+        second_utc:t.second_utc,value_1e8:t.value_1e8}).collect::<Vec<_>>();
+    Ok(compare_window_averages(&source_ticks,
+        contract.window.to_existing_rule())?)
+}
+/// Requires authenticated primary origin, exact window and ticker matching.
+/// Neither an archived Kalshi relay nor different filenames grant independence.
+pub fn corroborate_primary(
+    contract:&ContractDefinition,
+    official:&OfficialMarketEvidence,
+    source:&PrimaryImport,verifier:&impl PrimaryProvenanceVerifier)
+    ->Result<SettlementAssessment,Error>{
+    contract.validate()?;
+    if official.ticker!=contract.ticker||official.market_id!=contract.market_id{
+        return Err(Error::WrongMarket);
+    }
+    if !official.is_authenticated_public_get(){
+        return Err(Error::UnknownOfficial);
+    }
+    let official_side=official_winner(official).ok_or(Error::UnknownOfficial)?;
+    let derived=validate_primary_windows(contract,source)?;
     if !verifier.authenticate(source,contract){
         return Err(Error::UnauthenticatedPrimary);
     }
-    let source_ticks=source.ticks.iter().map(|t|IndexTick{
-        second_utc:t.second_utc,value_1e8:t.value_1e8}).collect::<Vec<_>>();
-    let derived=compare_window_averages(&source_ticks,
-        contract.window.to_existing_rule())?;
     let tier=if official_side==derived.derived_winner{
         OutcomeTier::IndependentCorroborated
     }else{OutcomeTier::ConflictingOrInvalid};
@@ -324,6 +337,7 @@ pub fn corroborate_primary(
         blocked_reasons:if tier==OutcomeTier::ConflictingOrInvalid{
             vec!["PRIMARY_OFFICIAL_CONFLICT".into()]
         }else{vec![]},
+        authenticated_primary:tier==OutcomeTier::IndependentCorroborated,
     })
 }
 pub fn assess_official(
@@ -334,6 +348,7 @@ pub fn assess_official(
         official_winner:None,source_derived_winner:None,
         official_source_sha256:None,primary_source_sha256:None,
         blocked_reasons:vec!["BLOCKED_INDEPENDENT_SETTLEMENT".into()],
+        authenticated_primary:false,
     };
     match official{
         None=>out.blocked_reasons.push("MISSING_FRESH_OFFICIAL_FINAL".into()),
@@ -342,7 +357,9 @@ pub fn assess_official(
             out.blocked_reasons.push("MARKET_IDENTITY_MISMATCH".into());
         },
         Some(o)=>{
-            if let Some(w)=official_winner(o){
+            if !o.is_authenticated_public_get(){
+                out.blocked_reasons.push("UNVERIFIED_LOCAL_OFFICIAL_PAYLOAD".into());
+            }else if let Some(w)=official_winner(o){
                 out.tier=OutcomeTier::FreshOfficial;
                 out.official_winner=Some(as_text(w));
                 out.official_source_sha256=Some(o.source_sha256.clone());
@@ -422,7 +439,10 @@ pub fn modeled_expiry_pnl_with_assessment(
         if a.tier==OutcomeTier::ConflictingOrInvalid{
             return Err(Error::ConflictingSettlement);
         }
-        if a.tier==OutcomeTier::IndependentCorroborated&&
+        if a.tier==OutcomeTier::IndependentCorroborated&&a.authenticated_primary&&
+            official.is_some_and(|o|
+                a.official_source_sha256.as_deref()==Some(o.source_sha256.as_str())&&
+                o.is_authenticated_public_get())&&
             a.official_winner==result.official_result&&
             a.primary_source_sha256.as_deref().is_some_and(sha_ok){
             result.independently_verified=true;
@@ -497,10 +517,15 @@ mod tests{
             ticks_sha256,document_sha256:"a".repeat(64),
             retrieved_at_ns:20,observed_at_ns:10,
             first_second_utc:0,ticks};
-        let o=OfficialMarketEvidence{ticker:"KXBTC-TEST".into(),market_id:"MARKET-1".into(),
-            status:OfficialStatus::FinalYes,source_sha256:"d".repeat(64),
-            retrieved_at_ns:20,source_id:"kalshi-official".into()};
-        assert_eq!(corroborate_primary(&rule(),&o,&p,&TrustedForFixture),
+        assert_eq!(validate_primary_windows(&rule(),&p),
             Err(Error::Window(phoenix_settlement::Error::MissingSample)));
+        // A local JSON body is not a fresh official HTTPS response, even when
+        // its status field says settled.
+        let raw=br#"{"market":{"ticker":"KXBTC-TEST","market_id":"MARKET-1",
+            "status":"settled","result":"yes"}}"#;
+        let o=phoenix_kalshi_read_only::parse_official_market("KXBTC-TEST",raw,20)
+            .unwrap();
+        assert_eq!(corroborate_primary(&rule(),&o,&p,&TrustedForFixture),
+            Err(Error::UnknownOfficial));
     }
 }
