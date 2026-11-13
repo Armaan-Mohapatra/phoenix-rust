@@ -161,8 +161,12 @@ fn quarantine(root:&Path,p:&Path)->Result<(),Error>{
     reject_reparse(root)?;reject_reparse(p)?;
     let name=p.file_name().ok_or(Error::InvalidInput)?;
     let target=root.join("quarantine").join(name);
-    if target.exists(){return Err(Error::InvalidInput);}
-    fs::rename(p,&target)?;
+    reject_reparse(&target)?;
+    if fs::symlink_metadata(&target).is_ok(){return Err(Error::UnsafePath);}
+    // No overwriting an existing forensic artifact, even across an unsafe
+    // name collision. Unsupported hard-link filesystems fail closed.
+    fs::hard_link(p,&target)?;
+    fs::remove_file(p)?;
     sync_dir(&root.join("quarantine"))?;Ok(())
 }
 
