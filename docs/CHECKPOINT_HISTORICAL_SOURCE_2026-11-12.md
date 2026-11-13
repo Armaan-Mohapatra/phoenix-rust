@@ -26,7 +26,7 @@
 
 ## Verified CI
 
-- PR #17 [source-origin Rust loader run 43356418199](https://github.com/Armaan-Mohapatra/phoenix-rust/actions/runs/43356418199) **Windows+Linux PASS** (synthetic Parquet encoded with real WSS field shapes). Original historical regression and core Rust checks also passed at `99fee146`; last combined matrix Windows status must be rechecked before final claim.
+- PR #17 [source-origin Rust loader run 43356418199](https://github.com/Armaan-Mohapatra/phoenix-rust/actions/runs/43356418199) **Windows+Linux PASS** (synthetic Parquet encoded with real WSS field shapes). Original historical regression and core Rust checks also passed at `99fee146`; [combined matrix run 43356418263](https://github.com/Armaan-Mohapatra/phoenix-rust/actions/runs/43356418263) completed **Windows+Linux PASS**.
 - PR #18 [disk-identity run 43356964502](https://github.com/Armaan-Mohapatra/phoenix-rust/actions/runs/43356964502) **Windows+Linux PASS** after compiler fixes. Independent, experimental `redb=4.5.0` ACID identity/partition index, 16MiB cache vs 1GiB default, 256 entries/transaction; tests duplicate, collision, rollback, restart, and refuse unknown existing directory. Not yet wired to the sealed Parquet publisher.
 
 ## Hard blockers and evidence grades

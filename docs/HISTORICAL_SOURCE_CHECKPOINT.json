@@ -12,9 +12,6 @@
   "candidate_parquet_declared_rows_all_markets": 194253,
   "prior_non_rust_market_deltas": 63813,
   "actual_raw_rust_events_replayed": 0,
-  "btci_open_sum_cents": 482856277,
-  "btci_close_sum_cents": 482875060,
-  "btci_samples_per_window": 60,
   "relayed_winner": "YES",
   "primary_benchmark_independently_authenticated": false,
   "source_initial_book_verified": false,
@@ -33,6 +30,9 @@
     "source_loader": "windows_linux_success",
     "historical_fixture": "windows_linux_success",
     "disk_index": "windows_linux_success",
-    "combined_matrix": "windows_status_unconfirmed_at_checkpoint"
-  }
+    "combined_matrix": "windows_linux_success"
+  },
+  "brti_open_sum_cents": 482856277,
+  "brti_close_sum_cents": 482875060,
+  "brti_samples_per_window": 60
 }
