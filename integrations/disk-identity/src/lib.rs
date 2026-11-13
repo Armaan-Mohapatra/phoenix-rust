@@ -145,14 +145,27 @@ impl Index {
         }
         let encoded=format!("{manifest_sha}:{}",signature(events));
         let tx=self.db.begin_write().map_err(io)?;
-        {
+        let existing={
             let table=tx.open_table(PARTITIONS).map_err(io)?;
-            let existing=table.get(partition_sha).map_err(io)?
-                .map(|guard|guard.value().to_owned());
-            if let Some(existing)=existing {
-                if existing!=encoded{return Err(Error::ConflictingPartition);}
-                return Ok(ResultCount{inserted:0,existing:events.len(),already_committed:true});
+            table.get(partition_sha).map_err(io)?
+                .map(|guard|guard.value().to_owned())
+        };
+        if let Some(existing)=existing {
+            if existing!=encoded{return Err(Error::ConflictingPartition);}
+            // A matching marker alone cannot certify a corrupted or
+            // incompletely reconstructed ID table. Every <=256 event entry
+            // must still exist with the original manifest row digest.
+            let table=tx.open_table(EVENTS).map_err(io)?;
+            for (id,digest) in events{
+                let found=table.get(*id).map_err(io)?
+                    .map(|v|v.value().to_owned());
+                if found.as_deref()!=Some(*digest){
+                    return Err(Error::ConflictingEvent((*id).to_owned()));
+                }
             }
+            return Ok(ResultCount{
+                inserted:0,existing:events.len(),already_committed:true
+            });
         }
         let mut new_count=0;let mut old_count=0;
         {
@@ -208,6 +221,24 @@ mod tests{
             ("P:2",&b),("P:1",&c)]),Err(Error::ConflictingEvent("P:1".into())));
         assert_eq!(idx.get("P:2").unwrap(),None);
         assert!(!idx.partition_indexed(&b).unwrap());
+    }
+    #[test]
+    fn matching_partition_marker_does_not_hide_missing_event_identity(){
+        let t=TempDir::new().unwrap();let db=Index::open(root(&t)).unwrap();
+        let part=sha('a');let manifest=sha('b');let digest=sha('c');
+        db.commit_verified_partition(&part,&manifest,&[
+            ("BTC:1",digest.as_str())]).unwrap();
+        // Inject a deliberately inconsistent redb state. The public
+        // write API cannot produce it, but recovery must still reject it.
+        let tx=db.db.begin_write().unwrap();
+        {
+            let mut table=tx.open_table(EVENTS).unwrap();
+            table.remove("BTC:1").unwrap();
+        }
+        tx.commit().unwrap();
+        assert_eq!(db.commit_verified_partition(&part,&manifest,&[
+            ("BTC:1",digest.as_str())]),
+            Err(Error::ConflictingEvent("BTC:1".into())));
     }
     #[test]
     fn existing_unknown_directory_is_never_initialized(){
