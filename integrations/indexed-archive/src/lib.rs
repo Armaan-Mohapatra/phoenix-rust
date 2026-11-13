@@ -51,6 +51,13 @@ impl IndexedArchive {
     }
     pub fn recovery(&self)->&Recovery{&self.recovery}
     pub fn find(&self,id:&str)->Result<Option<String>,Error>{self.index.get(id).map_err(index_error)}
+    /// Disk-backed, exclusive-cursor partition listing. At most 512 strings
+    /// are returned, independent of the total archive history.
+    pub fn partition_page(&self,after:Option<&str>,limit:usize)
+        ->Result<Vec<String>,Error>{
+        self.index.partition_page(after,limit).map_err(index_error)
+    }
+
     fn reconcile(&mut self)->Result<Recovery,Error>{
         // Disk is the publication authority. Detect database-only markers
         // without materializing the complete set of committed partition IDs.
@@ -354,6 +361,28 @@ mod tests {
         assert!(archive.publish(scope(),&[event("third",3)]).is_err());
         drop(archive);
         assert!(IndexedArchive::open_with_partition_limit(root(&t),1).is_err());
+    }
+
+    #[test]
+    fn recovered_partition_cursor_pages_without_manifest_cache(){
+        let t=TempDir::new().unwrap();
+        let mut a=IndexedArchive::open_with_partition_limit(root(&t),16).unwrap();
+        for n in 0..13u64{
+            a.publish(scope(),&[event(&format!("n:{n}"),n+1)]).unwrap();
+        }
+        drop(a);
+        let b=IndexedArchive::open_with_partition_limit(root(&t),16).unwrap();
+        let mut cursor:Option<String>=None;
+        let mut all=Vec::new();
+        loop{
+            let page=b.partition_page(cursor.as_deref(),4).unwrap();
+            if page.is_empty(){break;}
+            cursor=page.last().cloned();
+            all.extend(page);
+        }
+        assert_eq!(all.len(),13);
+        assert!(all.windows(2).all(|pair|pair[0]<pair[1]));
+        assert_eq!(b.recovery().already_indexed,13);
     }
     #[test]fn unknown_root_and_orphan_index_fail_closed(){
         let t=TempDir::new().unwrap();let path=root(&t);
