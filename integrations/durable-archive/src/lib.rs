@@ -248,6 +248,9 @@ impl Archive {
         reject_reparse(root)?;
         if root.exists(){
             reject_reparse(&root.join(MARKER))?;
+            if !root.join(MARKER).is_file(){
+                return Err(Error::NotDedicatedResearchPath);
+            }
             if fs::read(root.join(MARKER))?!=b"Phoenix Rust research-only archive v1\n" {
                 return Err(Error::NotDedicatedResearchPath);
             }
