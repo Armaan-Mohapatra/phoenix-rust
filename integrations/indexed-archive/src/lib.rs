@@ -302,7 +302,7 @@ impl IndexedArchive {
             scope,rows,|id|disk_index.get(id).map_err(|err|
                 phoenix_durable_archive::Error::ExternalIndex(format!("{err:?}"))),
             archive_fault);
-        let result=match result{
+        let mut result=match result{
             Ok(v)=>v,
             Err(e)=>{
                 // A failed publication may have passed the sealed-manifest
@@ -338,6 +338,7 @@ impl IndexedArchive {
         if fault==Fault::AfterIndexCommit{
             self.poisoned=true;return Err(Error::Interrupted);
         }
+        result.publication_state=PublicationState::FullyReconciled;
         Ok(result)
     }
 
