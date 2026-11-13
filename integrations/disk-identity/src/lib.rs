@@ -9,10 +9,13 @@ const CACHE_BYTES:usize=16*1024*1024;
 const MAX_EVENTS_PER_TRANSACTION:usize=256;
 const EVENTS:TableDefinition<&str,&str>=TableDefinition::new("event_ids_v1");
 const PARTITIONS:TableDefinition<&str,&str>=TableDefinition::new("sealed_partitions_v1");
+const META:TableDefinition<&str,&str>=TableDefinition::new("phoenix_index_metadata_v1");
+const FORMAT_VERSION:&str="1";
 
 #[derive(Debug,PartialEq,Eq)]
 pub enum Error {NotResearchPath,InvalidInput,CapacityExceeded,
-    ConflictingEvent(String),ConflictingPartition,Storage(String)}
+    ConflictingEvent(String),ConflictingPartition,UnsupportedFormat,
+    InjectedFault,Storage(String)}
 fn io(e:impl std::fmt::Display)->Error{Error::Storage(e.to_string())}
 fn sha_ok(s:&str)->bool{s.len()==64&&s.bytes().all(|x|x.is_ascii_hexdigit())}
 fn id_ok(s:&str)->bool{!s.is_empty()&&s.len()<=128&&
@@ -26,6 +29,31 @@ fn signature(events:&[(&str,&str)])->String{
     }
     format!("{:x}",h.finalize())
 }
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+pub enum IndexFault {
+    None,RejectTransaction,AfterRowInsertBeforeMarker,
+    AfterMarkerBeforeCommit,AfterCommitBeforeAcknowledgement,
+}
+fn reject_linked(path:&Path)->Result<(),Error>{
+    if path.components().any(|p|matches!(p,std::path::Component::ParentDir)){
+        return Err(Error::NotResearchPath);
+    }
+    for component in path.ancestors(){
+        match fs::symlink_metadata(component){
+            Ok(meta)=>{
+                if meta.file_type().is_symlink(){return Err(Error::NotResearchPath);}
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    if meta.file_attributes()&0x400!=0{return Err(Error::NotResearchPath);}
+                }
+            },
+            Err(e) if e.kind()==std::io::ErrorKind::NotFound=>{},
+            Err(e)=>return Err(io(e)),
+        }
+    }
+    Ok(())
+}
 pub struct Index {root:PathBuf,db:Database}
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub struct ResultCount {pub inserted:usize,pub existing:usize,pub already_committed:bool}
@@ -34,6 +62,9 @@ impl Index {
     /// never auto-initialize production/source data paths.
     pub fn open(root:impl AsRef<Path>)->Result<Self,Error>{
         let root=root.as_ref();
+        reject_linked(root)?;
+        reject_linked(&root.join(MARKER))?;
+        reject_linked(&root.join("identity.redb"))?;
         if root.exists(){
             let content=fs::read(root.join(MARKER)).map_err(|_|Error::NotResearchPath)?;
             if content!=b"Phoenix offline research identity index v1\n"{
@@ -56,11 +87,22 @@ impl Index {
             let txn=db.begin_write().map_err(io)?;
             txn.open_table(EVENTS).map_err(io)?;
             txn.open_table(PARTITIONS).map_err(io)?;
+            {
+                let mut meta=txn.open_table(META).map_err(io)?;
+                let saved=meta.get("schema_version").map_err(io)?
+                    .map(|guard|guard.value().to_owned());
+                match saved.as_deref(){
+                    Some(FORMAT_VERSION)=>{},
+                    None=>{meta.insert("schema_version",FORMAT_VERSION).map_err(io)?;},
+                    Some(_)=>return Err(Error::UnsupportedFormat),
+                }
+            }
             txn.commit().map_err(io)?;
         }
         Ok(Self{root,db})
     }
     pub fn root(&self)->&Path{&self.root}
+    pub fn format_version(&self)->&'static str{FORMAT_VERSION}
     pub fn get(&self,id:&str)->Result<Option<String>,Error>{
         if !id_ok(id){return Err(Error::InvalidInput);}
         let tx=self.db.begin_read().map_err(io)?;
@@ -131,6 +173,14 @@ impl Index {
     /// and must replay sealed manifests after a crash before admitting new data.
     pub fn commit_verified_partition(&self,partition_sha:&str,
         manifest_sha:&str,events:&[(&str,&str)])->Result<ResultCount,Error>{
+        self.commit_verified_partition_fault(partition_sha,manifest_sha,events,
+            IndexFault::None)
+    }
+    /// Deterministic ACID fault injection. All faults except the last occur
+    /// before commit; dropping the write transaction must rollback mutations.
+    pub fn commit_verified_partition_fault(&self,partition_sha:&str,
+        manifest_sha:&str,events:&[(&str,&str)],fault:IndexFault)
+        ->Result<ResultCount,Error>{
         if !sha_ok(partition_sha)||!sha_ok(manifest_sha)||events.is_empty()||
             events.len()>MAX_EVENTS_PER_TRANSACTION{
             return Err(Error::InvalidInput);
@@ -144,6 +194,7 @@ impl Index {
             }
         }
         let encoded=format!("{manifest_sha}:{}",signature(events));
+        if fault==IndexFault::RejectTransaction{return Err(Error::InjectedFault);}
         let tx=self.db.begin_write().map_err(io)?;
         let existing={
             let table=tx.open_table(PARTITIONS).map_err(io)?;
@@ -182,11 +233,20 @@ impl Index {
                 }
             }
         }
+        if fault==IndexFault::AfterRowInsertBeforeMarker{
+            return Err(Error::InjectedFault);
+        }
         {
             let mut table=tx.open_table(PARTITIONS).map_err(io)?;
             table.insert(partition_sha,encoded.as_str()).map_err(io)?;
         }
+        if fault==IndexFault::AfterMarkerBeforeCommit{
+            return Err(Error::InjectedFault);
+        }
         tx.commit().map_err(io)?;
+        if fault==IndexFault::AfterCommitBeforeAcknowledgement{
+            return Err(Error::InjectedFault);
+        }
         Ok(ResultCount{inserted:new_count,existing:old_count,already_committed:false})
     }
 }
