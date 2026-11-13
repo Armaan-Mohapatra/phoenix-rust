@@ -48,3 +48,7 @@ Synthetic tests exist for two venues, exact 8-decimal price and contract-multipl
 5. Research outputs must remain outside production source roots; no collector or live service change is permitted.
 
 **Stop after Phase 8.** Next new phase is Phase 9 Frozen Strategy Registry, on a branch stacked from the exact verified Phase 8 SHA, only after a separate user request. Never run Phase 15 without fresh authorization.
+
+## Stacked Phase 7 CLI compatibility correction
+
+Static integration review discovered that the Phase 7 `phoenix-multimarket-replay` CLI initially accepted an extracted array of checkpoint records while writing an enclosing `BatchOutcome` object containing `next_checkpoints`. The CLI now accepts **either** shape and bounds prior checkpoint input to 20 MiB. A synthetic parser regression test was added and **NOT RUN**. This correction is committed on the Phase 8 child branch without rewriting/rebasing the already verified Phase 7 parent branch or draft PR.
