@@ -119,12 +119,12 @@ fn digest(s:&str)->bool{
 fn validate_intent(o:&LimitIntent)->Result<(),Error>{
     if o.market.is_empty()||o.strategy_order_id.is_empty()||
         o.quantity_hundredths==0||o.signal_received_ns<=0||
-        o.signal_received_ns>o.decision_ns||
         o.decision_ns>o.arrival_ns||o.max_quote_age_ns<0||
         o.deadline_ns<o.decision_ns||
         o.cancelled_at_ns.is_some_and(|c|c<o.decision_ns){
         return Err(Error::InvalidOrder);
     }
+    if o.signal_received_ns>o.decision_ns{return Err(Error::FutureSignal);}
     Ok(())
 }
 fn select_book<'a>(o:&LimitIntent,books:&'a [FractionalBook])
@@ -138,7 +138,7 @@ fn select_book<'a>(o:&LimitIntent,books:&'a [FractionalBook])
         return Err(Error::UnverifiedSource);
     }
     if o.arrival_ns.checked_sub(b.received_ns)
-        .is_none_or(|age|age<0||age>o.max_quote_age_ns){
+        .map_or(true,|age|age<0||age>o.max_quote_age_ns){
         return Err(Error::StaleBook);
     }
     Ok(b)
@@ -188,7 +188,6 @@ fn add_fill(report:&mut ExecutionReport,fee:&impl HistoricalFeeSource,
 pub fn simulate(o:&LimitIntent,books:&[FractionalBook],tape:TradeTape<'_>,
     fee:&impl HistoricalFeeSource)->Result<ExecutionReport,Error>{
     validate_intent(o)?;
-    if o.signal_received_ns>o.decision_ns{return Err(Error::FutureSignal);}
     if o.cancelled_at_ns.is_some_and(|t|t<=o.arrival_ns){
         return Ok(empty_report(o,OrderState::Cancelled));
     }
@@ -253,7 +252,7 @@ pub fn simulate(o:&LimitIntent,books:&[FractionalBook],tape:TradeTape<'_>,
         else if r.filled_hundredths>0{OrderState::PartiallyFilled}
         else if o.cancelled_at_ns.is_some_and(|c|c<=o.deadline_ns){
             OrderState::Cancelled
-        }else if effective_deadline<=o.arrival_ns{
+        }else if o.role==LiquidityRole::Maker{
             OrderState::Expired
         }else{OrderState::Unfilled};
     Ok(r)
