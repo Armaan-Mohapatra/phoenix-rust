@@ -548,6 +548,10 @@ pub mod forensic {
                         // Other markets share sid/seq: NOT gap proof.
                         self.channel_sequence_ambiguous=true;
                     }
+                    let opposite_best=match d.side{
+                        Side::Yes=>self.no.iter().next_back().map(|(p,_)|*p),
+                        Side::No=>self.yes.iter().next_back().map(|(p,_)|*p),
+                    };
                     let m=match d.side{Side::Yes=>&mut self.yes,Side::No=>&mut self.no};
                     let old=m.get(&d.price).copied().unwrap_or(0);
                     let q=i128::from(old)+i128::from(d.delta_fp);
@@ -556,11 +560,7 @@ pub mod forensic {
                         return Err(Error::NegativeDepth);
                     }
                     if q>0{
-                        // With the mutable side already held, derive the
-                        // opposing best bid without ever truncating depth.
-                        let opposite=match d.side{Side::Yes=>self.no.iter().next_back(),
-                            Side::No=>self.yes.iter().next_back()};
-                        if opposite.is_some_and(|(p,_)|
+                        if opposite_best.is_some_and(|p|
                             u32::from(p.ticks())+u32::from(d.price.ticks())>10_000){
                             self.status=Initialization::InvalidBook;
                             return Err(Error::InvalidSnapshot);
