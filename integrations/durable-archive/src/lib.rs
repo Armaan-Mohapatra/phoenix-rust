@@ -25,7 +25,7 @@ pub enum Error {
     NotDedicatedResearchPath, Busy, InvalidInput, DuplicateConflict(String),
     CapacityExceeded, InvalidManifest, MissingCommittedPartition(String),
     DigestMismatch(String), ExistingUncommittedPartition,
-    InjectedFault,
+    ExternalIndex(String), InjectedFault,
 }
 impl From<std::io::Error> for Error {fn from(e:std::io::Error)->Self{Self::Io(e)}}
 impl From<serde_json::Error> for Error {fn from(e:serde_json::Error)->Self{Self::Json(e)}}
@@ -78,6 +78,9 @@ pub struct Archive {
     root:PathBuf,
     _writer_lock:File,
     ids:HashMap<String,String>,
+    // When true, the paired transactional disk index is the identity authority.
+    // The publisher must receive an explicit lookup callback per append.
+    external_index_mode:bool,
     manifests:BTreeMap<String,SealedPartition>,
     recovery:RecoveryReport,
 }
@@ -137,6 +140,16 @@ impl Archive {
     /// A single exclusive OS advisory lock prevents concurrent publishers and
     /// is released automatically after a crash.
     pub fn open(root:impl AsRef<Path>)->Result<Self,Error>{
+        Self::open_with_mode(root,false)
+    }
+    /// Dedicated research mode for an external, transactional event-ID index.
+    /// It never allocates the complete historical ID map in Rust heap memory.
+    /// Callers MUST use publish_with_external_lookup, never plain publish.
+    pub fn open_external_index(root:impl AsRef<Path>)->Result<Self,Error>{
+        Self::open_with_mode(root,true)
+    }
+    fn open_with_mode(root:impl AsRef<Path>,external_index_mode:bool)
+        ->Result<Self,Error>{
         let root=root.as_ref();
         if root.exists(){
             if !root.join(MARKER).is_file(){return Err(Error::NotDedicatedResearchPath);}
@@ -153,7 +166,8 @@ impl Archive {
             fs::create_dir_all(root.join(sub))?;
         }
         let mut archive=Self {root,_writer_lock:f,ids:HashMap::new(),
-            manifests:BTreeMap::new(),recovery:RecoveryReport::default()};
+            external_index_mode,manifests:BTreeMap::new(),
+            recovery:RecoveryReport::default()};
         archive.load_index()?;
         archive.recover_uncommitted()?;
         Ok(archive)
@@ -180,11 +194,15 @@ impl Archive {
             if !data_path(&self.root,&m.partition_id).is_file(){
                 return Err(Error::MissingCommittedPartition(m.partition_id));
             }
-            if self.ids.len()+m.events.len()>MAX_INDEXED_EVENTS{
+            if !self.external_index_mode &&
+                self.ids.len()+m.events.len()>MAX_INDEXED_EVENTS{
                 return Err(Error::CapacityExceeded);
             }
             for e in &m.events {
-                if !valid_id(&e.id)||!is_digest(&e.row_sha256)||
+                if !valid_id(&e.id)||!is_digest(&e.row_sha256){
+                    return Err(Error::InvalidManifest);
+                }
+                if !self.external_index_mode &&
                     self.ids.insert(e.id.clone(),e.row_sha256.clone()).is_some(){
                     return Err(Error::InvalidManifest);
                 }
@@ -219,10 +237,24 @@ impl Archive {
     }
     pub fn publish(&mut self,scope:SourceScope,events:&[EventRow])
         ->Result<PublishResult,Error>{
-        self.publish_inner(scope,events,Fault::None)
+        if self.external_index_mode{return Err(Error::InvalidInput);}
+        self.publish_inner(scope,events,Fault::None,None)
     }
-    fn publish_inner(&mut self,scope:SourceScope,events:&[EventRow],fault:Fault)
-        ->Result<PublishResult,Error>{
+
+    /// Only for a publisher paired with a committed, recovered disk identity
+    /// index. The callback must return authoritative event-ID -> row-digest
+    /// mappings and must fail closed if the index cannot be queried.
+    pub fn publish_with_external_lookup<F>(
+        &mut self,scope:SourceScope,events:&[EventRow],mut lookup:F
+    )->Result<PublishResult,Error>
+    where F:FnMut(&str)->Result<Option<String>,Error>{
+        if !self.external_index_mode{return Err(Error::InvalidInput);}
+        self.publish_inner(scope,events,Fault::None,Some(&mut lookup))
+    }
+    fn publish_inner(
+        &mut self,scope:SourceScope,events:&[EventRow],fault:Fault,
+        mut lookup:Option<&mut dyn FnMut(&str)->Result<Option<String>,Error>>
+    )->Result<PublishResult,Error>{
         if events.is_empty()||events.len()>MAX_ROWS_PER_PARTITION||
             scope.feed.is_empty()||scope.session.is_empty()||
             scope.market.is_empty()||scope.quality_flags.len()>32 ||
@@ -241,8 +273,15 @@ impl Archive {
                 return Err(Error::InvalidInput);
             }
             let digest=sha_row(&e.data);
-            if let Some(prev)=seen.get(&e.event_id).or_else(||self.ids.get(&e.event_id)){
-                if *prev!=digest{return Err(Error::DuplicateConflict(e.event_id.clone()));}
+            let previous=if let Some(v)=seen.get(&e.event_id){
+                Some(v.clone())
+            }else if self.external_index_mode{
+                lookup.as_mut().ok_or(Error::InvalidInput)?(&e.event_id)?
+            }else{
+                self.ids.get(&e.event_id).cloned()
+            };
+            if let Some(prev)=previous{
+                if prev!=digest{return Err(Error::DuplicateConflict(e.event_id.clone()));}
                 dup+=1;continue;
             }
             seen.insert(e.event_id.clone(),digest.clone());
@@ -253,7 +292,8 @@ impl Archive {
             partition_id:None,added:0,duplicates:dup,
             durability:Durability::FileSyncedDirectoryNotProven});}
         if self.manifests.len()>=MAX_PARTITIONS ||
-            self.ids.len()+fresh.len()>MAX_INDEXED_EVENTS{
+            (!self.external_index_mode &&
+                self.ids.len()+fresh.len()>MAX_INDEXED_EVENTS){
             return Err(Error::CapacityExceeded);
         }
         let (bytes,pmeta)=encode_finalized(&fresh)
@@ -288,7 +328,9 @@ impl Archive {
         if matches!(fault,Fault::AfterManifestSync){return Err(Error::InjectedFault);}
         fs::rename(&pending_manifest,manifest_path(&self.root,&id))?;
         let durable_manifest_dir=sync_dir(&self.root.join("manifests"))?;
-        for r in &m.events {self.ids.insert(r.id.clone(),r.row_sha256.clone());}
+        if !self.external_index_mode{
+            for r in &m.events {self.ids.insert(r.id.clone(),r.row_sha256.clone());}
+        }
         self.manifests.insert(id.clone(),m);
         Ok(PublishResult{partition_id:Some(id),added:fresh.len(),duplicates:dup,
             durability:if durable_data_dir&&durable_manifest_dir{
@@ -353,7 +395,7 @@ mod tests {
         let t=TempDir::new().unwrap();
         let mut a=Archive::open(root(&t)).unwrap();
         assert!(matches!(a.publish_inner(scope(),&[r("a",1)],
-            Fault::AfterDataRename),Err(Error::InjectedFault)));
+            Fault::AfterDataRename,None),Err(Error::InjectedFault)));
         drop(a);
         let mut b=Archive::open(root(&t)).unwrap();
         assert_eq!(b.recovery().quarantined_orphan_partitions,1);
@@ -365,7 +407,7 @@ mod tests {
         let t=TempDir::new().unwrap();
         let mut a=Archive::open(root(&t)).unwrap();
         assert!(matches!(a.publish_inner(scope(),&[r("a",1)],
-            Fault::AfterManifestSync),Err(Error::InjectedFault)));
+            Fault::AfterManifestSync,None),Err(Error::InjectedFault)));
         drop(a);
         let mut b=Archive::open(root(&t)).unwrap();
         assert_eq!(b.recovery().quarantined_orphan_partitions,1);
@@ -377,7 +419,7 @@ mod tests {
         let t=TempDir::new().unwrap();
         let mut a=Archive::open(root(&t)).unwrap();
         assert!(matches!(a.publish_inner(scope(),&[r("a",1)],
-            Fault::BeforeDataWrite),Err(Error::InjectedFault)));
+            Fault::BeforeDataWrite,None),Err(Error::InjectedFault)));
         assert_eq!(a.committed_partitions(),0);
     }
     #[test]fn corrupt_parquet_fails_verification(){
@@ -392,6 +434,19 @@ mod tests {
         let t=TempDir::new().unwrap();
         assert!(matches!(Archive::open(t.path()),
             Err(Error::NotDedicatedResearchPath)));
+    }
+    #[test]fn external_mode_cannot_publish_without_authoritative_lookup(){
+        let t=TempDir::new().unwrap();
+        let mut a=Archive::open_external_index(root(&t)).unwrap();
+        assert_eq!(a.indexed_events(),0);
+        assert!(matches!(a.publish(scope(),&[r("a",1)]),Err(Error::InvalidInput)));
+        let first=a.publish_with_external_lookup(scope(),&[r("a",1)],|_|Ok(None)).unwrap();
+        assert_eq!(first.added,1);
+        assert_eq!(a.indexed_events(),0);
+        drop(a);
+        let a=Archive::open_external_index(root(&t)).unwrap();
+        assert_eq!(a.committed_partitions(),1);
+        assert_eq!(a.indexed_events(),0);
     }
     #[test]fn simultaneous_publisher_is_rejected(){
         let t=TempDir::new().unwrap();
@@ -409,35 +464,59 @@ mod tests {
 }
 
 
+
 impl Archive {
-    /// Read only previously sealed and checksum-verified rows. The callback
+    // A single-partition reader is needed by the disk-backed wrapper so that
+    // normal append operations do not reread every previously sealed partition.
+    // The complete readback remains available for cold-start reconciliation.
+    fn visit_one_verified<F>(
+        &self, manifest:&SealedPartition, callback:&mut F
+    )->Result<(),Error>
+    where F:FnMut(&SealedPartition,&EventIdentity,&Row)->Result<(),Error>{
+        let bytes=safe_read(
+            &data_path(&self.root,&manifest.partition_id),MAX_PARTITION_BYTES)?;
+        if hash(&bytes)!=manifest.parquet_sha256{
+            return Err(Error::DigestMismatch(manifest.partition_id.clone()));
+        }
+        let meta=ParquetManifest{
+            rows:manifest.rows,sha256:manifest.parquet_sha256.clone(),
+            received_min_ns:manifest.received_min_ns,
+            received_max_ns:manifest.received_max_ns,format:"parquet_zstd_v1",
+        };
+        let decoded=phoenix_parquet_batch::decode_finalized(&bytes,&meta)
+            .map_err(|e|Error::Parquet(format!("{e:?}")))?;
+        if decoded.len()!=manifest.events.len(){return Err(Error::InvalidManifest);}
+        for (identity,row) in manifest.events.iter().zip(decoded.iter()){
+            if identity.row_sha256!=sha_row(row){
+                return Err(Error::DigestMismatch(identity.id.clone()));
+            }
+            callback(manifest,identity,row)?;
+        }
+        Ok(())
+    }
+
+    /// Verify and visit exactly one *already sealed* partition by its digest.
+    /// Unknown or unsealed partitions must not be silently admitted.
+    pub fn visit_verified_partition<F>(
+        &self,partition_id:&str,mut callback:F
+    )->Result<(),Error>
+    where F:FnMut(&SealedPartition,&EventIdentity,&Row)->Result<(),Error>{
+        let manifest=self.manifests.get(partition_id).ok_or_else(||
+            Error::MissingCommittedPartition(partition_id.to_owned()))?;
+        self.visit_one_verified(manifest,&mut callback)
+    }
+
+    /// Reads only previously sealed and checksum-verified rows. The callback
     /// receives one row at a time; partitions remain strictly bounded.
     pub fn visit_verified_rows<F>(&self,mut callback:F)->Result<(),Error>
     where F:FnMut(&SealedPartition,&EventIdentity,&Row)->Result<(),Error>{
         for manifest in self.manifests.values(){
-            let bytes=safe_read(
-                &data_path(&self.root,&manifest.partition_id),MAX_PARTITION_BYTES)?;
-            if hash(&bytes)!=manifest.parquet_sha256{
-                return Err(Error::DigestMismatch(manifest.partition_id.clone()));
-            }
-            let meta=ParquetManifest{
-                rows:manifest.rows,sha256:manifest.parquet_sha256.clone(),
-                received_min_ns:manifest.received_min_ns,
-                received_max_ns:manifest.received_max_ns,format:"parquet_zstd_v1",
-            };
-            let decoded=phoenix_parquet_batch::decode_finalized(&bytes,&meta)
-                .map_err(|e|Error::Parquet(format!("{e:?}")))?;
-            if decoded.len()!=manifest.events.len(){return Err(Error::InvalidManifest);}
-            for (identity,row) in manifest.events.iter().zip(decoded.iter()){
-                if identity.row_sha256!=sha_row(row){
-                    return Err(Error::DigestMismatch(identity.id.clone()));
-                }
-                callback(manifest,identity,row)?;
-            }
+            self.visit_one_verified(manifest,&mut callback)?;
         }
         Ok(())
     }
 }
+
 #[cfg(test)]
 mod archived_row_tests{
     use super::*;
