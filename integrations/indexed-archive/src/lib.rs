@@ -457,6 +457,98 @@ mod tests {
         assert!(all.windows(2).all(|pair|pair[0]<pair[1]));
         assert_eq!(b.recovery().already_indexed,13);
     }
+    #[test]
+    fn redb_interruption_points_recover_from_verified_sealed_manifests(){
+        let scenarios=[
+            Fault::BeforeIndexTransaction,
+            Fault::AfterRowsBeforeMarker,
+            Fault::AfterMarkerBeforeCommit,
+            Fault::AfterIndexCommitBeforeAcknowledgement,
+        ];
+        for fault in scenarios{
+            let t=TempDir::new().unwrap();
+            let root=root(&t);
+            let mut a=IndexedArchive::open(&root).unwrap();
+            assert!(a.publish_fault(scope(),&[event("phase2",1)],fault).is_err());
+            assert_eq!(a.recovery_summary().publication_state,
+                PublicationState::DurabilityUncertain);
+            assert!(a.recovery_summary().manual_intervention_required);
+            assert!(matches!(a.publish(scope(),&[event("later",2)]),
+                Err(Error::Poisoned)));
+            drop(a);
+            let mut b=IndexedArchive::open(&root).unwrap();
+            assert_eq!(b.recovery().sealed,1);
+            assert_eq!(b.recovery().event_references,1);
+            assert!(b.find("phase2").unwrap().is_some());
+            if fault==Fault::AfterIndexCommitBeforeAcknowledgement{
+                assert_eq!(b.recovery().already_indexed,1);
+            }else{
+                assert_eq!(b.recovery().replayed,1);
+            }
+            assert_eq!(b.publish(scope(),&[event("phase2",1)])
+                .unwrap().duplicates,1);
+        }
+    }
+    #[test]
+    fn source_seal_after_error_must_poison_writer_until_reopen(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let mut a=IndexedArchive::open(&root).unwrap();
+        assert!(a.publish_archive_fault(scope(),&[event("sealed",1)],
+            ArchiveFault::AfterManifestRename).is_err());
+        assert_eq!(a.recovery_summary().publication_state,
+            PublicationState::DurabilityUncertain);
+        assert!(matches!(a.publish(scope(),&[event("new",2)]),
+            Err(Error::Poisoned)));
+        drop(a);
+        let b=IndexedArchive::open(&root).unwrap();
+        assert_eq!(b.recovery().replayed,1);
+        assert!(b.find("sealed").unwrap().is_some());
+        assert!(!b.recovery_summary().manual_intervention_required);
+    }
+    #[test]
+    fn partial_recovery_does_not_erase_prior_sealed_history(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let mut a=IndexedArchive::open(&root).unwrap();
+        a.publish(scope(),&[event("first",1)]).unwrap();
+        a.publish(scope(),&[event("second",2)]).unwrap();
+        assert!(a.publish_fault(scope(),&[event("third",3)],
+            Fault::AfterSealedManifest).is_err());
+        drop(a);
+        let b=IndexedArchive::open(&root).unwrap();
+        assert_eq!(b.recovery().sealed,3);
+        assert_eq!(b.recovery().already_indexed,2);
+        assert_eq!(b.recovery().replayed,1);
+        assert!(b.find("first").unwrap().is_some());
+        assert!(b.find("second").unwrap().is_some());
+        assert!(b.find("third").unwrap().is_some());
+    }
+    #[test]
+    fn report_is_machine_readable_bounded_and_does_not_claim_no_loss(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let mut a=IndexedArchive::open(&root).unwrap();
+        a.publish(scope(),&[event("reported",1)]).unwrap();
+        let json=a.recovery_report_json().unwrap();
+        let report:RecoverySummary=serde_json::from_str(&json).unwrap();
+        assert_eq!(report.publication_state,PublicationState::FullyReconciled);
+        assert_eq!(report.sealed_partitions_found,1);
+        assert_eq!(report.missing_or_orphaned_records,None);
+        assert_eq!(report.identity_conflicts,None);
+        assert_eq!(report.evidence_partition_sha256_samples.len(),1);
+        assert!(!json.contains("synthetic order payload"));
+    }
+    #[test]
+    fn corrupt_startup_manifest_stays_on_disk_for_forensic_review(){
+        let t=TempDir::new().unwrap();let root=root(&t);
+        let mut a=IndexedArchive::open(&root).unwrap();
+        a.publish(scope(),&[event("safe",1)]).unwrap();
+        drop(a);
+        let path=fs::read_dir(root.join("sealed/manifests")).unwrap()
+            .next().unwrap().unwrap().path();
+        fs::write(&path,b"{bad json").unwrap();
+        let before=fs::read(&path).unwrap();
+        assert!(IndexedArchive::open(&root).is_err());
+        assert_eq!(fs::read(&path).unwrap(),before);
+    }
     #[test]fn unknown_root_and_orphan_index_fail_closed(){
         let t=TempDir::new().unwrap();let path=root(&t);
         fs::create_dir(&path).unwrap();
