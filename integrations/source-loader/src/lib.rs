@@ -13,7 +13,7 @@ use zip::ZipArchive;
 const MEMBER_LIMIT:u64=16*1024*1024;
 const CATALOG_LIMIT:usize=4*1024*1024;
 const MAX_MEMBERS:usize=32;
-const MAX_SCANNED:usize=150_000;
+const MAX_SCANNED:usize=250_000;
 const MAX_SORT_BYTES:usize=64*1024*1024;
 const PREFIX:&str="archive/curated/raw_events/";
 
