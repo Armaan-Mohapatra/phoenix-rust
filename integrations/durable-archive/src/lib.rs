@@ -33,6 +33,25 @@ pub enum Error {
 }
 impl From<std::io::Error> for Error {fn from(e:std::io::Error)->Self{Self::Io(e)}}
 impl From<serde_json::Error> for Error {fn from(e:serde_json::Error)->Self{Self::Json(e)}}
+impl Error{
+    pub fn storage_class(&self)->StorageFailure{
+        match self{
+            Self::Io(e)=>StorageFailure::from_io(e),
+            Self::InjectedStorage(s)=>*s,
+            Self::UnsafePath|Self::NotDedicatedResearchPath=>StorageFailure::UnexpectedPath,
+            Self::DigestMismatch(_)|Self::InvalidManifest=>StorageFailure::DataCorruption,
+            _=>StorageFailure::UnknownIo,
+        }
+    }
+    pub fn evidence_state(&self)->PublicationState{
+        match self{
+            Self::DigestMismatch(_)|Self::InvalidManifest|
+            Self::MissingCommittedPartition(_)|Self::DuplicateConflict(_)=>
+                PublicationState::CorruptOrInconsistent,
+            _=>PublicationState::DurabilityUncertain,
+        }
+    }
+}
 
 #[derive(Clone,Debug)]
 pub struct EventRow {
@@ -209,10 +228,10 @@ fn sealed_link_publish(from:&Path,to:&Path)->Result<bool,Error>{
     sync_dir(to.parent().ok_or(Error::InvalidInput)?)
 }
 fn staged_write(path:&Path,bytes:&[u8],during:bool,pre_sync:bool,
-    fail_sync:bool,fail_full:bool)->Result<(),Error>{
+    fail_sync:bool,simulated_failure:Option<StorageFailure>)->Result<(),Error>{
     reject_reparse(path)?;
     let mut file=OpenOptions::new().create_new(true).write(true).open(path)?;
-    if fail_full{return Err(Error::InjectedStorage(StorageFailure::DiskFull));}
+    if let Some(failure)=simulated_failure{return Err(Error::InjectedStorage(failure));}
     if during{
         let take=(bytes.len()+1)/2;
         file.write_all(&bytes[..take])?;
@@ -447,7 +466,13 @@ impl Archive {
             matches!(fault,Fault::DuringDataWrite),
             matches!(fault,Fault::AfterDataWriteBeforeSync),
             matches!(fault,Fault::FailDataSync),
-            matches!(fault,Fault::DiskFullData))?;
+            match fault{
+                Fault::DiskFullData=>Some(StorageFailure::DiskFull),
+                Fault::ReadOnlyData=>Some(StorageFailure::ReadOnlyFilesystem),
+                Fault::PermissionDeniedData=>Some(StorageFailure::PermissionDenied),
+                Fault::DisconnectedData=>Some(StorageFailure::DisconnectedStorage),
+                _=>None,
+            })?;
         if matches!(fault,Fault::AfterDataSync|Fault::BeforeDataRename){
             return Err(Error::InjectedFault);
         }
@@ -462,7 +487,9 @@ impl Archive {
             matches!(fault,Fault::DuringManifestWrite),
             matches!(fault,Fault::AfterManifestWriteBeforeSync),
             matches!(fault,Fault::FailManifestSync),
-            matches!(fault,Fault::DiskFullManifest))?;
+            if matches!(fault,Fault::DiskFullManifest){
+                Some(StorageFailure::DiskFull)
+            }else{None})?;
         if matches!(fault,Fault::AfterManifestSync|Fault::BeforeManifestRename){
             return Err(Error::InjectedFault);
         }
