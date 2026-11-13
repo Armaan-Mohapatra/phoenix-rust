@@ -7,7 +7,7 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use phoenix_kalshi_wire::{decode_archived,ArchivedDecoded,Message};
 use serde::{Deserialize,Serialize};
 use sha2::{Sha256,Digest};
-use std::{collections::HashMap,fs::File,io::Read,path::PathBuf};
+use std::{collections::{HashMap,BTreeMap},fs::File,io::Read,path::PathBuf};
 use zip::ZipArchive;
 
 const MEMBER_LIMIT:u64=16*1024*1024;
@@ -53,12 +53,60 @@ pub fn classify_book(snapshot_verified:bool,resnapshot_verified:bool,
     if assumed_empty_start{return Initialization::PartialInitialization;}
     Initialization::UnknownInitialization
 }
+/// Evidence covering all observed messages sharing a connection/sid/channel
+/// inside explicitly selected partitions, not only one market. These numbers
+/// are bounded-window observations and do NOT attest data outside the window.
+#[derive(Debug,Clone,Serialize)]
+pub struct ChannelRun {
+    pub connection_id:String,pub sid:u64,pub channel:String,
+    pub observed_messages:u64,
+    pub first_received_ns:i64,pub last_received_ns:i64,
+    pub first_seq:u64,pub last_seq:u64,
+    pub missing_in_selected_window:u64,
+    pub duplicates:u64,pub regressions:u64,
+    pub complete_subscription_history_verified:bool,
+}
+#[derive(Debug,Clone)]
+struct ChannelStamp{at:i64,connection:String,sid:u64,seq:u64,channel:String}
+fn summarize_channels(mut stamps:Vec<ChannelStamp>)->Vec<ChannelRun>{
+    stamps.sort_by(|a,b|(
+        a.at,&a.connection,a.sid,a.seq,&a.channel
+    ).cmp(&(b.at,&b.connection,b.sid,b.seq,&b.channel)));
+    let mut summaries=BTreeMap::<(String,u64,String),ChannelRun>::new();
+    for e in stamps{
+        let key=(e.connection.clone(),e.sid,e.channel.clone());
+        let s=summaries.entry(key).or_insert_with(||ChannelRun{
+            connection_id:e.connection, sid:e.sid, channel:e.channel,
+            observed_messages:0,first_received_ns:e.at,last_received_ns:e.at,
+            first_seq:e.seq,last_seq:e.seq,
+            missing_in_selected_window:0,duplicates:0,regressions:0,
+            complete_subscription_history_verified:false,
+        });
+        if s.observed_messages>0 {
+            if e.seq==s.last_seq{s.duplicates+=1;}
+            else if e.seq<s.last_seq{s.regressions+=1;}
+            else {
+                s.missing_in_selected_window=s.missing_in_selected_window
+                    .saturating_add(e.seq-s.last_seq-1);
+                s.last_seq=e.seq;
+            }
+        }
+        s.observed_messages+=1;s.last_received_ns=e.at;
+    }
+    summaries.into_values().collect()
+}
+fn optional_string(b:&arrow_array::RecordBatch,k:&'static str,i:usize)
+    ->Result<Option<String>,Error>{
+    if b.schema().index_of(k).is_err(){return Ok(None);}
+    string(b,k,i)
+}
 #[derive(Debug,Serialize)]
 pub struct Evidence {
     pub ticker:String,pub scanned_rows:usize,pub matching_events:usize,
     pub snapshots:usize,pub deltas:usize,pub trades:usize,
     pub reported_clock_ahead:usize,pub partition_proofs:Vec<PartitionProof>,
     pub initialization:Initialization,
+    pub channel_runs:Vec<ChannelRun>,
     pub independent_cf_settlement_proven:bool,pub actual_venue_fill_proven:bool,
 }
 #[derive(Debug,Clone)]
@@ -152,6 +200,7 @@ where F:FnMut(&CapturedMessage,&ArchivedDecoded)->Result<(),Error>{
     let mut parts=Vec::new();
     let mut selected=Vec::<CapturedMessage>::new();
     let mut scan_count=0usize;let mut stored_bytes=0usize;
+    let mut channel_stamps=Vec::<ChannelStamp>::new();
     for name in &req.named_members{
         if !valid_member(name){return Err(Error::InvalidMember);}
         let row=index.get(name).ok_or(Error::InvalidCatalog)?;
@@ -175,6 +224,24 @@ where F:FnMut(&CapturedMessage,&ArchivedDecoded)->Result<(),Error>{
                 let at=timestamp(&received)?;min=min.min(at);max=max.max(at);
                 local+=1;
                 if at<req.start_received_ns||at>req.end_received_ns{continue;}
+                // Inspect shared-channel sid/seq for ALL tickers in the
+                // bounded source window, before filtering target market.
+                // This avoids falsely treating every other-market message
+                // as a Kalshi packet-loss gap.
+                let channel=optional_string(&batch,"subscription_channel",i)?;
+                if let Some(channel)=channel{
+                    if matches!(channel.as_str(),"orderbook_delta"|"trade"|"orderbook_snapshot"){
+                        if let (Some(sid),Some(seq))=(
+                            number(&batch,"sid",i)?,number(&batch,"seq",i)?){
+                            if channel_stamps.len()>=MAX_SCANNED{return Err(Error::TooManyRows);}
+                            let connection=string(&batch,"connection_id",i)?
+                                .ok_or(Error::InvalidRow("connection_id"))?;
+                            channel_stamps.push(ChannelStamp{
+                                at,connection,sid,seq,channel,
+                            });
+                        }
+                    }
+                }
                 let ticker=string(&batch,"ticker",i)?.unwrap_or_default();
                 if ticker!=req.ticker{continue;}
                 let raw=string(&batch,"raw_message",i)?
@@ -209,6 +276,7 @@ where F:FnMut(&CapturedMessage,&ArchivedDecoded)->Result<(),Error>{
         parts.push(PartitionProof{member:name.clone(),sha256:observed,
             rows:local,first_received_ns:min,last_received_ns:max});
     }
+    let channel_runs=summarize_channels(channel_stamps);
     selected.sort_by(|a,b|(
         a.received_ns,&a.connection_id,a.sid,a.seq,&a.member,a.row_index
     ).cmp(&(b.received_ns,&b.connection_id,b.sid,b.seq,&b.member,b.row_index)));
@@ -231,6 +299,7 @@ where F:FnMut(&CapturedMessage,&ArchivedDecoded)->Result<(),Error>{
         // A market-filtered replay cannot certify the shared-channel
         // sequence or source snapshot initialization.
         initialization:Initialization::UnknownInitialization,
+        channel_runs,
         independent_cf_settlement_proven:false,actual_venue_fill_proven:false})
 }
 
@@ -285,6 +354,22 @@ mod tests{
             end_received_ns:1_792_882_058_000_000_000,
             named_members:vec![NAME.into()],zip_paths:vec![path]};
         (req,index)
+    }
+    #[test]
+    fn bounded_shared_channel_counts_distinguish_missing_and_reordering(){
+        let mk=|at,seq|ChannelStamp{
+            at,connection:"session-a".into(),sid:1,seq,
+            channel:"orderbook_delta".into(),
+        };
+        let result=summarize_channels(vec![
+            mk(100,10),mk(101,12),mk(102,12),mk(103,11),
+        ]);
+        assert_eq!(result.len(),1);
+        let ch=&result[0];
+        assert_eq!(ch.missing_in_selected_window,1);
+        assert_eq!(ch.duplicates,1);
+        assert_eq!(ch.regressions,1);
+        assert!(!ch.complete_subscription_history_verified);
     }
     #[test]
     fn bounded_original_wire_payloads_sort_by_receipt_and_preserve_skew(){
