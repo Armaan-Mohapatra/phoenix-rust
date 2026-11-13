@@ -2,7 +2,8 @@
 //! Values use exact 1e8 base/quote units. Bps are explicitly quantized
 //! integer analytical features, not source-price or exchange fill precision.
 use crate::perps::{PerpsEvent,PerpsObservation,Aggressor,DepthLevel};
-use serde::Serialize;
+use serde::{Serialize,Deserialize};
+use sha2::{Digest,Sha256};
 use std::collections::{BTreeMap,BTreeSet,VecDeque};
 
 const MAX_INSTRUMENTS:usize=32;
@@ -10,12 +11,29 @@ const MAX_OBSERVATIONS:usize=1024;
 const MAX_LOOKBACK_EVENTS:usize=32;
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub enum Error{InvalidRequest,InvalidObservation,Overflow,DuplicateConflict,
-    OutOfOrder,TooManyInstruments,SessionUnverified,NoFreshBook}
+    OutOfOrder,TooManyInstruments,SessionUnverified,NoFreshBook,
+    InvalidCheckpoint}
 #[derive(Debug,Clone)]
 struct PairBuffer{
     session:String,last_received_ns:i64,session_reset:bool,
     records:VecDeque<PerpsObservation>,
     seen:BTreeMap<String,String>,
+}
+#[derive(Debug,Clone,Serialize,Deserialize)]
+pub struct PairCheckpoint{
+    pub venue:String,pub symbol:String,pub session_reset:bool,
+    pub observations:Vec<PerpsObservation>,
+}
+#[derive(Debug,Clone,Serialize,Deserialize)]
+pub struct PerpsFeatureCheckpoint{
+    pub schema_version:u32,pub engine_revision_sha256:String,
+    pub pairs_sha256:String,pub pairs:Vec<PairCheckpoint>,
+}
+fn digest(data:&[u8])->String{
+    format!("{:x}",Sha256::digest(data))
+}
+fn sha_ok(s:&str)->bool{
+    s.len()==64&&s.bytes().all(|b|b.is_ascii_hexdigit())
 }
 #[derive(Default)]
 pub struct CausalPerpsBuffer{
@@ -113,6 +131,54 @@ impl CausalPerpsBuffer{
             }
         }
         Ok(true)
+    }
+    /// Immutable content-addressed research checkpoint for persistence
+    /// outside production roots. Checkpoint is not provider authentication.
+    pub fn checkpoint(&self,engine_revision_sha256:&str)
+        ->Result<PerpsFeatureCheckpoint,Error>{
+        if !sha_ok(engine_revision_sha256){return Err(Error::InvalidCheckpoint);}
+        let mut pairs=Vec::new();
+        for ((venue,symbol),entry) in &self.pairs{
+            pairs.push(PairCheckpoint{venue:venue.clone(),symbol:symbol.clone(),
+                session_reset:entry.session_reset,
+                observations:entry.records.iter().cloned().collect()});
+        }
+        let bytes=serde_json::to_vec(&pairs).map_err(|_|Error::InvalidCheckpoint)?;
+        Ok(PerpsFeatureCheckpoint{schema_version:1,
+            engine_revision_sha256:engine_revision_sha256.into(),
+            pairs_sha256:digest(&bytes),pairs})
+    }
+    /// Deterministic source-hash validation plus replay of bounded in-memory
+    /// observations, never an automatic local disk or production DB access.
+    pub fn restore(checkpoint:&PerpsFeatureCheckpoint,
+        expected_revision_sha256:&str)->Result<Self,Error>{
+        if checkpoint.schema_version!=1||
+            !sha_ok(expected_revision_sha256)||
+            checkpoint.engine_revision_sha256!=expected_revision_sha256||
+            !sha_ok(&checkpoint.pairs_sha256)||
+            checkpoint.pairs.len()>MAX_INSTRUMENTS||
+            checkpoint.pairs.iter().any(|x|
+                x.observations.is_empty()||x.observations.len()>MAX_OBSERVATIONS){
+            return Err(Error::InvalidCheckpoint);
+        }
+        let bytes=serde_json::to_vec(&checkpoint.pairs)
+            .map_err(|_|Error::InvalidCheckpoint)?;
+        if digest(&bytes)!=checkpoint.pairs_sha256{
+            return Err(Error::InvalidCheckpoint);
+        }
+        let mut b=Self::default();
+        for pair in &checkpoint.pairs{
+            for o in &pair.observations{
+                if o.venue!=pair.venue||o.observed_symbol!=pair.symbol{
+                    return Err(Error::InvalidCheckpoint);
+                }
+                b.ingest(o.clone()).map_err(|_|Error::InvalidCheckpoint)?;
+            }
+            let slot=b.pairs.get_mut(&(pair.venue.clone(),pair.symbol.clone()))
+                .ok_or(Error::InvalidCheckpoint)?;
+            slot.session_reset=pair.session_reset;
+        }
+        Ok(b)
     }
     pub fn instrument_count(&self)->usize{self.pairs.len()}
     pub fn observation_count(&self)->usize{
@@ -309,6 +375,19 @@ mod tests{
         assert_eq!(b.observation_count(),MAX_OBSERVATIONS);
         b.ingest(obs("B",1100,"extra",quote())).unwrap();
         assert_eq!(b.instrument_count(),2);
+    }
+    #[test]fn checkpoint_resume_is_hash_deterministic_and_tamper_evident(){
+        let mut b=CausalPerpsBuffer::default();
+        b.ingest(obs("A",90,"id1",quote())).unwrap();
+        let revision="f".repeat(64);
+        let cp=b.checkpoint(&revision).unwrap();
+        let restored=CausalPerpsBuffer::restore(&cp,&revision).unwrap();
+        assert_eq!(restored.observation_count(),1);
+        assert_eq!(restored.checkpoint(&revision).unwrap().pairs_sha256,
+            cp.pairs_sha256);
+        let mut tampered=cp;tampered.pairs[0].venue="FORGED".into();
+        assert!(matches!(CausalPerpsBuffer::restore(&tampered,&revision),
+            Err(Error::InvalidCheckpoint)));
     }
     #[test]fn return_spread_imbalance_and_trade_flow_are_exact_integer_features(){
         let mut b=CausalPerpsBuffer::default();
