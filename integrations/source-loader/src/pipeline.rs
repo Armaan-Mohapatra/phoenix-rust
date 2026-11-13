@@ -289,7 +289,7 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
         Some(&catalog_sha256));
     Ok(ReplayReport{
         schema_version:1,status:if invalid_depth>0{EvidenceClass::Invalid}
-            else if missing_snap>0||missing_initial(book.status()){EvidenceClass::Incomplete}
+            else if missing_snap>0||missing_initial(integrity.forensic_book().status()){EvidenceClass::Incomplete}
             else{EvidenceClass::SourceDerivedProvisional},
         market_ticker:req.ticker.clone(),decision_asof_received_ns:decision_ns,
         catalog_sha256,selected_members:evidence.partition_proofs.len(),
