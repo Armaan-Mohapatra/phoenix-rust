@@ -12,6 +12,7 @@ use zip::ZipArchive;
 
 pub mod pipeline;
 pub mod book_integrity;
+pub mod multi_market;
 
 const MEMBER_LIMIT:u64=16*1024*1024;
 const CATALOG_LIMIT:usize=4*1024*1024;
