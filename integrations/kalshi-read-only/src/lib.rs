@@ -242,21 +242,21 @@ mod tests{
     use super::*;
     #[test]fn exact_official_final_is_distinct_from_closed_market(){
         let yes=br#"{"market":{"ticker":"KXBTC-TEST","market_id":"1",
-            "status":"settled","result":"yes"}}"#;
+            "market_type":"binary","status":"settled","result":"yes"}}"#;
         let record=parse_official_market("KXBTC-TEST",yes,100).unwrap();
         assert_eq!(record.status,OfficialStatus::FinalYes);
         let closed=br#"{"market":{"ticker":"KXBTC-TEST","market_id":"1",
-            "status":"closed","result":"yes"}}"#;
+            "market_type":"binary","status":"closed","result":"yes"}}"#;
         assert_eq!(parse_official_market("KXBTC-TEST",closed,100)
             .unwrap().status,OfficialStatus::Pending);
     }
     #[test]fn changed_final_records_are_conflicts_not_silent_replacements(){
         let a=parse_official_market("KXBTC-TEST",
             br#"{"market":{"ticker":"KXBTC-TEST","market_id":"1",
-            "status":"settled","result":"yes"}}"#,100).unwrap();
+            "market_type":"binary","status":"settled","result":"yes"}}"#,100).unwrap();
         let b=parse_official_market("KXBTC-TEST",
             br#"{"market":{"ticker":"KXBTC-TEST","market_id":"1",
-            "status":"settled","result":"no"}}"#,101).unwrap();
+            "market_type":"binary","status":"settled","result":"no"}}"#,101).unwrap();
         assert_eq!(classify_official_revision(&a,&b).unwrap(),
             FinalRevision::ConflictingFinal);
         assert_eq!(classify_official_revision(&b,&a).unwrap(),
@@ -264,10 +264,10 @@ mod tests{
     }
     #[test]fn documented_ticker_identity_and_conflicting_ticker_block(){
         let b=br#"{"market":{"ticker":"MISMATCH","market_id":"1",
-            "status":"settled","result":"yes"}}"#;
+            "market_type":"binary","status":"settled","result":"yes"}}"#;
         assert!(parse_official_market("KXBTC-TEST",b,100).is_err());
         let missing=br#"{"market":{"ticker":"KXBTC-TEST",
-            "status":"settled","result":"no"}}"#;
+            "market_type":"binary","status":"settled","result":"no"}}"#;
         let parsed=parse_official_market("KXBTC-TEST",missing,100).unwrap();
         assert_eq!(parsed.market_id,None);
         assert_eq!(parsed.status,OfficialStatus::FinalNo);
@@ -278,8 +278,10 @@ mod tests{
             ("void","yes",OfficialStatus::Void),
             ("settled","scalar",OfficialStatus::Scalar),
         ]{
+            let market_type=if result=="scalar"{"scalar"}else{"binary"};
             let data=format!(r#"{{"market":{{"ticker":"KXBTC-TEST",
-                "market_id":"1","status":"{kind}","result":"{result}"}}}}"#);
+                "market_id":"1","market_type":"{market_type}",
+                "status":"{kind}","result":"{result}"}}}}"#);
             assert_eq!(parse_official_market("KXBTC-TEST",data.as_bytes(),100)
                 .unwrap().status,expected);
         }
