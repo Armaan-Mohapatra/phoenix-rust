@@ -97,7 +97,7 @@ impl Index {
                 let saved=meta.get("schema_version").map_err(io)?
                     .map(|guard|guard.value().to_owned());
                 match saved.as_deref(){
-                    Some(FORMAT_VERSION)=>{},
+                    Some(value) if value==FORMAT_VERSION=>{},
                     None=>{meta.insert("schema_version",FORMAT_VERSION).map_err(io)?;},
                     Some(_)=>return Err(Error::UnsupportedFormat),
                 }
@@ -223,14 +223,16 @@ impl Index {
                 inserted:0,existing:events.len(),already_committed:true
             });
         }
-        let mut new_count=0;let mut old_count=0;
+        let mut new_count=0;
         {
             let mut table=tx.open_table(EVENTS).map_err(io)?;
             for (id,digest) in events{
                 let old=table.get(*id).map_err(io)?.map(|v|v.value().to_owned());
                 match old {
-                    Some(x) if x!=*digest =>return Err(Error::ConflictingEvent((*id).into())),
-                    Some(_)=>old_count+=1,
+                    // An identical ID in another sealed partition is still
+                    // duplicate history. Only replay of the SAME existing
+                    // partition marker is idempotent, never a new marker.
+                    Some(_)=>return Err(Error::ConflictingEvent((*id).into())),
                     None=>{
                         table.insert(*id,*digest).map_err(io)?;
                         new_count+=1;
@@ -252,7 +254,7 @@ impl Index {
         if fault==IndexFault::AfterCommitBeforeAcknowledgement{
             return Err(Error::InjectedFault);
         }
-        Ok(ResultCount{inserted:new_count,existing:old_count,already_committed:false})
+        Ok(ResultCount{inserted:new_count,existing:0,already_committed:false})
     }
 }
 #[cfg(test)]
@@ -304,6 +306,18 @@ mod tests{
         assert_eq!(db.commit_verified_partition(&part,&manifest,&[
             ("BTC:1",digest.as_str())]),
             Err(Error::ConflictingEvent("BTC:1".into())));
+    }
+    #[test]
+    fn identical_event_id_cannot_be_committed_into_two_partitions(){
+        let t=TempDir::new().unwrap();let db=Index::open(root(&t)).unwrap();
+        let a=sha('a');let b=sha('b');let digest=sha('c');
+        let mh=sha('d');
+        db.commit_verified_partition(&a,&mh,&[("same",digest.as_str())]).unwrap();
+        assert_eq!(db.commit_verified_partition(&b,&mh,
+            &[("same",digest.as_str())]),
+            Err(Error::ConflictingEvent("same".into())));
+        assert!(!db.partition_indexed(&b).unwrap());
+        assert_eq!(db.get("same").unwrap(),Some(digest));
     }
     #[test]
     fn interrupted_transaction_rolls_back_ids_and_partition_marker(){
