@@ -1,6 +1,8 @@
 //! Bounded, schema-configured, read-only historical Parquet normalization.
 //! This crate contains NO private Phoenix source schemas or data. Consumers
 //! supply mappings locally; unit tests construct synthetic Parquet fixtures.
+pub mod perps;
+pub mod perps_features;
 use arrow_array::{Array,ArrayRef,BinaryArray,Int64Array,RecordBatch,StringArray,UInt64Array};
 use arrow_schema::{DataType,Field,Schema};
 use bytes::Bytes;
