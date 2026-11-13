@@ -18,3 +18,9 @@ An exact 0.01-contract source-message L2 state machine is included in `source-lo
 
 
 [Exact source-partition selection evidence](BTC_20261024_SOURCE_COVERAGE.md).
+
+## New bounded full-channel sequence diagnostic
+
+`source-loader::replay` now retains a bounded record of sid/seq values across **all** market tickers in the explicitly selected source partitions, before narrowing down to the BTC ticker for the main WSS replay. It summarizes connection+sid+channel-level sequence gaps, duplicates and regressions in local receipt order. This corrects the known false positive that arises when treating skipped other-market subscription messages as BTC-specific packet loss.
+
+Every channel report includes `complete_subscription_history_verified=false`. The 24 source members are only a bounded pre-decision window; a one-window or one-market capture cannot independently certify whole-session initial subscription state. The existing fail-closed book-state classification remains unchanged. Test fixtures cover a gap, duplicate and out-of-order observation. The actual full source archive has not been fed through the Rust reader in this environment.
