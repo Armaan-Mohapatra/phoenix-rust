@@ -46,3 +46,13 @@ An independent Phase 15 operator must compile and run `phoenix-sim`, `phoenix-co
 ## Handoff
 
 Retain draft, stacked branch without merge. Do not start Phase 7 until the remaining Phase 6 source integration gaps (especially the existing backtest adapter contract and complete execution-evidence pathway) are resolved in source and recorded. Never run Phase 15 without separate authorization.
+
+## Source-completion amendment — original adapter located and linked
+
+The previously unresolved optional upstream adapter is present in `integrations/hftbacktest-adapter`. Its manifest pins `nkaz001/hftbacktest` at `5f3ec40b2afb764e0fea112f941ed85523ef4e88` with `backtest` features only, opt-in feature `upstream-hft`, edition 2024 and toolchain **Rust 1.91.1**. Its existing upstream comparison uses whole-contract Phoenix maker primitives. A new `compare_fractional_when_lossless` bridge converts **only exact 100-hundredth whole lots**; rejects fractional source level, order or consuming-print quantities, rejects oversized binary64 integers and any extra assumed queue-ahead position; maps to the original queue comparison, not to upstream P&L. No lossily rounded comparison is permitted. This optional compatibility code was **NOT COMPILED OR EXECUTED**; equality is not verified.
+
+The historical executor now additionally offers `simulate_source_window`, a strict structural witness requiring matching market/connection/book SHA, a SHA-tagged manifest and tape, explicit bounded window coverage, matching snapshot timing, a channel continuity claim, no reported sequence gap/regression, and for maker a complete trade-tape interval. **The witness is not cryptographic source authentication.** These fields cannot independently prove source legitimacy, but missing/contradictory source evidence fails closed. `simulate` remains explicitly labeled hypothetical. Original archived data supplied through source-loader is still `Unverified` and does not independently become eligible.
+
+A static source audit also fixed a previously dangling `&book` reference in the final replay checkpoint loop, so the sole `BookIntegrity` book is consistently consumed. New negative tests cover missing source continuity, a foreign session, incomplete maker tape, and the adapter's fractional-lot rejection. Tests all **NOT RUN**.
+
+**Phase 6 source-development sign-off**: CODE_WRITTEN_UNTESTED. The remaining authenticated source data, actual fee versions, compile/runtime behavior and scenario performance are Phase 15 inputs, not reasons to claim source code is validated. Phase 7 may begin as a new stacked source-development branch.
