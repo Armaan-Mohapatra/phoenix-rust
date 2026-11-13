@@ -252,6 +252,102 @@ impl FeeSchedule{
             aggregation:self.aggregation})
     }
 }
+/// Exact fractional-contract fee schedule extension used by phoenix-sim.
+/// Quantities are hundredths of one contract, never rounded to whole units.
+impl FeeSchedule{
+    pub fn charge_fractional(&self,fills:&[(Price,u64)])
+        ->Result<ChargedFee,Error>{
+        if fills.is_empty()||fills.len()>256||
+            fills.iter().any(|(_,q)|*q==0){return Err(Error::InvalidFee);}
+        let raw_for=|p:Price,qty_fp:u64|->Result<Money,Error>{
+            let n=match self.formula{
+                FeeFormula::QuadraticPrice=>{
+                    u128::from(qty_fp).checked_mul(u128::from(self.rate_numerator))
+                        .and_then(|n|n.checked_mul(u128::from(p.ticks())))
+                        .and_then(|n|n.checked_mul(u128::from(10_000-p.ticks())))
+                        .ok_or(Error::Overflow)?
+                },
+                FeeFormula::FlatPerContract=>{
+                    u128::from(qty_fp).checked_mul(u128::from(self.rate_numerator))
+                        .ok_or(Error::Overflow)?
+                },
+            };
+            let multiplier:u128=match self.formula{
+                FeeFormula::QuadraticPrice=>1_000_000, // 100 fractional * 10,000 ticks
+                FeeFormula::FlatPerContract=>100,
+            };
+            let d=u128::from(self.rate_denominator).checked_mul(multiplier)
+                .ok_or(Error::Overflow)?;
+            if d==0{return Err(Error::InvalidFee);}
+            let q=n/d+u128::from(n%d!=0);
+            let units=Money::try_from(q).map_err(|_|Error::Overflow)?;
+            ceil_step(units,Money::from(self.rounding_step_centicents))
+        };
+        let amount=match self.aggregation{
+            FeeAggregation::PerFill=>{
+                let p=fills[0].0;
+                if fills.iter().any(|(other,_)|*other!=p){
+                    return Err(Error::InvalidFee);
+                }
+                let quantity=fills.iter().try_fold(0u64,|sum,(_,q)|
+                    sum.checked_add(*q)).ok_or(Error::Overflow)?;
+                raw_for(p,quantity)?
+            },
+            FeeAggregation::PerPriceLevel=>{
+                let mut sum:Money=0;
+                for (p,q) in fills{
+                    sum=sum.checked_add(raw_for(*p,*q)?).ok_or(Error::Overflow)?;
+                }
+                sum
+            },
+        };
+        let amount=if let Some(min)=self.minimum_fee_centicents{
+            amount.max(Money::from(min))
+        }else{amount};
+        let amount=if let Some(max)=self.maximum_fee_centicents{
+            amount.min(Money::from(max))
+        }else{amount};
+        Ok(ChargedFee{fee_centicents:amount,
+            source_sha256:self.source_sha256.clone(),role:self.role,
+            schedule_series:self.series.clone(),evaluated_at_ns:None,
+            schedule_effective_from_ns:self.effective_from_ns,
+            aggregation:self.aggregation})
+    }
+}
+impl FeeRegistry{
+    pub fn charge_fractional_at(&self,series:&str,role:FeeRole,
+        asof_ns:i64,fills:&[(Price,u64)])->Result<ChargedFee,Error>{
+        let schedule=self.resolve(series,role,asof_ns)?;
+        let mut fee=schedule.charge_fractional(fills)?;
+        fee.evaluated_at_ns=Some(asof_ns);
+        Ok(fee)
+    }
+}
+/// Binding from a unique contract ticker to its original effective-dated
+/// series fees; unknown or future fees never default to zero.
+pub struct HistoricalFeeBridge<'a>{
+    pub registry:&'a FeeRegistry,
+    pub ticker:&'a str,
+    pub series:&'a str,
+}
+impl phoenix_sim::historical::HistoricalFeeSource for HistoricalFeeBridge<'_>{
+    fn quote(&self,market:&str,role:phoenix_sim::historical::LiquidityRole,
+        price:Price,quantity_hundredths:u64,at_ns:i64)
+        ->Option<phoenix_sim::historical::FeeQuote>{
+        if market!=self.ticker{return None;}
+        let fee_role=match role{
+            phoenix_sim::historical::LiquidityRole::Maker=>FeeRole::Maker,
+            phoenix_sim::historical::LiquidityRole::Taker=>FeeRole::Taker,
+        };
+        let charged=self.registry.charge_fractional_at(self.series,
+            fee_role,at_ns,&[(price,quantity_hundredths)]).ok()?;
+        Some(phoenix_sim::historical::FeeQuote{
+            fee_centicents:charged.fee_centicents,
+            effective_schedule_sha256:charged.source_sha256,
+        })
+    }
+}
+
 #[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(rename_all="SCREAMING_SNAKE_CASE")]
 pub enum OutcomeTier {
@@ -728,6 +824,29 @@ mod tests{
         let result=modeled_expiry_pnl(&rule(),Side::Yes,p,1,Some(&charged),None).unwrap();
         assert!(!result.modeled_fill);
         assert!(result.net_modeled_pnl_centicents.is_none());
+    }
+    #[test]fn fractional_quantity_fee_is_exact_and_matches_whole_contract(){
+        let schedule=fee(FeeRole::Taker);
+        let price=Price::new(5000).unwrap();
+        let whole=schedule.charge(&[(price,1)]).unwrap();
+        let fp=schedule.charge_fractional(&[(price,100)]).unwrap();
+        assert_eq!(whole.fee_centicents,fp.fee_centicents);
+        let half=schedule.charge_fractional(&[(price,50)]).unwrap();
+        assert!(half.fee_centicents>0);
+        assert!(half.fee_centicents<=whole.fee_centicents);
+    }
+    #[test]fn historical_fee_bridge_rejects_wrong_market_and_future_rate(){
+        use phoenix_sim::historical::{HistoricalFeeSource,LiquidityRole};
+        let mut registry=FeeRegistry::default();
+        registry.insert(fee(FeeRole::Taker)).unwrap();
+        let bridge=HistoricalFeeBridge{registry:&registry,
+            ticker:"KXBTC-TEST",series:"KXBTC15M"};
+        let p=Price::new(5000).unwrap();
+        assert!(bridge.quote("OTHER",LiquidityRole::Taker,p,100,50).is_none());
+        assert!(bridge.quote("KXBTC-TEST",LiquidityRole::Taker,p,100,100)
+            .is_none());
+        assert!(bridge.quote("KXBTC-TEST",LiquidityRole::Taker,p,50,50)
+            .is_some());
     }
     #[test]fn historical_fee_checked_overflow_does_not_wrap(){
         let mut f=fee(FeeRole::Taker);
