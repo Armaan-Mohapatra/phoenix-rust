@@ -68,6 +68,19 @@ impl Index {
         let result=table.get(id).map_err(io)?.map(|v|v.value().to_owned());
         Ok(result)
     }
+    /// Bounded partition enumeration only (never materializes the ID table).
+    pub fn list_partition_ids(&self,max:usize)->Result<Vec<String>,Error>{
+        if max==0||max>100_000{return Err(Error::InvalidInput);}
+        let tx=self.db.begin_read().map_err(io)?;
+        let table=tx.open_table(PARTITIONS).map_err(io)?;
+        let mut ids=Vec::new();
+        for item in table.iter().map_err(io)?{
+            let (key,_)=item.map_err(io)?;
+            if ids.len()>=max{return Err(Error::CapacityExceeded);}
+            ids.push(key.value().to_string());
+        }
+        Ok(ids)
+    }
     pub fn partition_indexed(&self,sha:&str)->Result<bool,Error>{
         if !sha_ok(sha){return Err(Error::InvalidInput);}
         let tx=self.db.begin_read().map_err(io)?;
