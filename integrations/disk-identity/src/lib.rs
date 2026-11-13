@@ -35,6 +35,11 @@ pub enum IndexFault {
     AfterMarkerBeforeCommit,AfterCommitBeforeAcknowledgement,
 }
 fn reject_linked(path:&Path)->Result<(),Error>{
+    if path.components().any(|p|{
+        let n=p.as_os_str().to_string_lossy();
+        ["TradingNextData","KalshiData","KalshiRuntime","paper15m_runtime"]
+            .iter().any(|protected|n.eq_ignore_ascii_case(protected))
+    }){return Err(Error::NotResearchPath);}
     if path.components().any(|p|matches!(p,std::path::Component::ParentDir)){
         return Err(Error::NotResearchPath);
     }
