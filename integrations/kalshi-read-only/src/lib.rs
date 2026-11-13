@@ -90,14 +90,20 @@ impl ReadOnlyKalshi {
     /// Exactly one manually invoked read-only official historical market GET.
     /// A finalized record is admissible only with the exact expected ticker
     /// and an explicit market_id in the official response.
-    pub fn official_result(&self,ticker:&str,retrieved_at_ns:i64)
+    pub fn official_result(&self,ticker:&str)
         ->Result<OfficialMarketEvidence,Error>{
         let value=self.market(ticker)?;
+        let observed_ns=std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_|Error::InvalidFinal)?.as_nanos();
+        let retrieved_at_ns=i64::try_from(observed_ns)
+            .map_err(|_|Error::InvalidFinal)?;
         let canonical=serde_json::to_vec(&value)?;
         let mut result=parse_official_market(ticker,&canonical,retrieved_at_ns)?;
-        // Only this hard-coded reviewed HTTPS official GET can set the
-        // provenance bit. Local fixture import cannot mark a fresh final.
+        // Only this reviewed HTTPS GET can mark an official live response.
+        // Timestamp is captured here, not accepted from an arbitrary caller.
         result.authenticated_public_get=true;
+        result.source_id="kalshi-public-market-get".into();
         Ok(result)
     }
 
