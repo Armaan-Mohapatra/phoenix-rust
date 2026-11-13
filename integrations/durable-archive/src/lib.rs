@@ -87,6 +87,8 @@ pub enum Durability {
 pub struct PublishResult {
     pub partition_id:Option<String>,
     pub added:usize,pub duplicates:usize,pub durability:Durability,
+    /// Logical source/index state, distinct from filesystem durability.
+    pub publication_state:PublicationState,
 }
 #[derive(Debug,Default,Clone,Copy,PartialEq,Eq)]
 pub struct RecoveryReport {
@@ -439,7 +441,8 @@ impl Archive {
         }
         if fresh.is_empty(){return Ok(PublishResult{
             partition_id:None,added:0,duplicates:dup,
-            durability:Durability::FileSyncedDirectoryNotProven});}
+            durability:Durability::FileSyncedDirectoryNotProven,
+            publication_state:PublicationState::FullyReconciled});}
         if self.committed_partitions()>=self.external_partition_limit ||
             (!self.external_index_mode &&
                 self.ids.len()+fresh.len()>MAX_INDEXED_EVENTS){
@@ -517,7 +520,10 @@ impl Archive {
         Ok(PublishResult{partition_id:Some(id),added:fresh.len(),duplicates:dup,
             durability:if durable_data_dir&&durable_manifest_dir{
                 Durability::FileAndDirectorySynced
-            }else{Durability::FileSyncedDirectoryNotProven}})
+            }else{Durability::FileSyncedDirectoryNotProven},
+            publication_state:if self.external_index_mode{
+                PublicationState::SealedNotIndexed
+            }else{PublicationState::FullyReconciled}})
     }
     /// Reads only bounded known sealed partitions; no drive scan.
     pub fn verify_all(&self)->Result<usize,Error>{
