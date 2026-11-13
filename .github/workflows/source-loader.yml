@@ -1,0 +1,28 @@
+name: Bounded original Phoenix ZIP Parquet source replay tests
+on:
+  push:
+    branches: [codex/real-btc-historical-replay-v1]
+    paths: ['integrations/source-loader/**','.github/workflows/source-loader.yml']
+  pull_request:
+    paths: ['integrations/source-loader/**','.github/workflows/source-loader.yml']
+permissions:
+  contents: read
+jobs:
+  source-loader:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify raw Parquet manifest SHA, ZIP member bounds and clock skew
+        run: cargo test --manifest-path integrations/source-loader/Cargo.toml --all-targets --verbose
+      - name: Parse Windows source launcher without accessing any source archives
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("integrations/source-loader/scripts/run-original-btc.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List | Out-String | Write-Error; exit 1 }

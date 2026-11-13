@@ -39,3 +39,8 @@ PR #13 supplies a standalone deterministic synthetic/research performance report
 - Source-level independent Rust mathematical ports from Apache-2.0 Oracle3 and MIT Ryan Frigo, plus an MIT Tarpboi-inspired risk guard, have passed standalone CI. These are **not direct upstream dependencies** and are not deployed.
 - A minimal projected sample of a **real archived October 24 BTC paper ledger** passed fixed-point P&L arithmetic on Windows/Linux. It is not a raw orderbook replay, actual venue fill, independent index settlement or verified after-cost investment strategy.
 - The full assembled integration workflow now includes the core, L2 codec, archive, historical-input, paper journal, reporting, HFT queue, three port families and real-ledger parity. Treat the latest CI result as authoritative; a passing fixture matrix cannot promote release gates G4/G5.
+
+
+## Real source replay checkpoint (2026-11-12 PST)
+
+Draft PR #17 implements an original ZIP Parquet reader with source SHA checks and source-derived BTC 5-projection arithmetic. **G4 independent settlement OPEN**, **G5 genuine full raw Rust replay OPEN**, **G3 disk-backed index OPEN**. Forensic source initialization UNKNOWN; any modeled fill remains provisional. See [checkpoint](CHECKPOINT_HISTORICAL_SOURCE_2026-11-12.md). Draft PR #18 separately tests a 16MiB-cache transactional disk index on Windows/Linux, **not yet wired** to archive; no production migration. No source/collector modification or main merge.

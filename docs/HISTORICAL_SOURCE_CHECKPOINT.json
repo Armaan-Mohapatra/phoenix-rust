@@ -1,0 +1,38 @@
+{
+  "checkpoint_date_local": "2026-11-12",
+  "historical_branch": "codex/real-btc-historical-replay-v1",
+  "historical_last_implementation_sha": "99fee1467b1eaf62b95c0cb92fb37c5dde273189",
+  "index_branch": "codex/disk-id-index-v1",
+  "index_sha": "ca4f26138d2f46dbecb4f5eb87ed28188efb64fe",
+  "market": "KXBTC15M-26OCT241900-00",
+  "decision_utc": "2026-10-24T22:47:39Z",
+  "market_id": "01a16a5a-aeb3-7b39-8061-52758c8f1b48",
+  "catalog_sha256": "55f869f1231b67948395ac16a33b50ec774711653da2a3d22c693050eda2db08",
+  "candidate_parquet_partitions": 24,
+  "candidate_parquet_declared_rows_all_markets": 194253,
+  "prior_non_rust_market_deltas": 63813,
+  "actual_raw_rust_events_replayed": 0,
+  "relayed_winner": "YES",
+  "primary_benchmark_independently_authenticated": false,
+  "source_initial_book_verified": false,
+  "actual_venue_fills_verified": false,
+  "modeled_yes_net_usd": "0.5933",
+  "modeled_no_net_usd": "-0.6365",
+  "status": "PARTIAL_REAL_MARKET_REPLAY",
+  "blockers": [
+    "CF_PRIMARY_LICENSE",
+    "INITIAL_BOOK_SNAPSHOT",
+    "RAW_RUST_SOURCE_EXECUTION",
+    "FRESH_OFFICIAL_SETTLEMENT",
+    "INDEX_NOT_WIRED"
+  ],
+  "ci": {
+    "source_loader": "windows_linux_success",
+    "historical_fixture": "windows_linux_success",
+    "disk_index": "windows_linux_success",
+    "combined_matrix": "windows_linux_success"
+  },
+  "brti_open_sum_cents": 482856277,
+  "brti_close_sum_cents": 482875060,
+  "brti_samples_per_window": 60
+}

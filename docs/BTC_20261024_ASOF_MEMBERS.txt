@@ -1,0 +1,27 @@
+# Phoenix source candidate list from original Parquet footer statistics
+# BTC KXBTC15M-26OCT241900-00, local receipt 2026-10-24T22:44:40Z to 22:47:39Z
+# Source catalog SHA256 55f869f1231b67948395ac16a33b50ec774711653da2a3d22c693050eda2db08
+archive/curated/raw_events/record_date=2026-10-24/segment_0082928055b8bd4b6483.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_021bc8c39d8470405b93.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_086cb442914835d41fb5.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_2e871969bb2e7265d375.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_3200f9403384cc0ec732.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_3f050dc7b8b3efa81a35.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_4e7c065917972da4fded.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_50195db27f9f71efb8c7.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_567769ae86c840e7c1e7.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_5cf93c641784b324cafd.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_8b4b89cd2974b6f1d0ef.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_8b52cea35450a8a4c277.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_8ecf301f3bb80ae92358.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_99a77ec35c963d04919a.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_b2c02c60b1476fd3cddd.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_bc53be85224c90744f72.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_c08583a019276477fdf7.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_c8c6b4d39a1767bdb8cc.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_e1276028e18dd2225abf.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_e359858531bd2d75e64b.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_e7960d86e988004522a9.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_ee9e40178222ad1d2699.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_f895b98b50aa3980482d.parquet
+archive/curated/raw_events/record_date=2026-10-24/segment_fab3b3bcd860d6f809d5.parquet
