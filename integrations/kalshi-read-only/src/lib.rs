@@ -98,18 +98,26 @@ impl ReadOnlyKalshi {
     /// binary settlement semantics. market_id is optional in the official schema.
     pub fn official_result(&self,ticker:&str)
         ->Result<OfficialMarketEvidence,Error>{
-        let (value,origin)=match self.market(ticker){
-            Ok(value)=>(value,"kalshi-public-market-get"),
-            Err(Error::BadStatus(404))=>(self.historical_market(ticker)?,
-                "kalshi-public-historical-market-get"),
-            Err(err)=>return Err(err),
-        };
+        let value=self.market(ticker)?;
+        Self::classify_network_result(ticker,&value,"kalshi-public-market-get")
+    }
+    /// Explicit archive-tier lookup. Do not immediately retry a 404 via the
+    /// other endpoint: the shared rate limit deliberately blocks that.
+    /// Callers can use this read-only operation as a separate manual request.
+    pub fn official_historical_result(&self,ticker:&str)
+        ->Result<OfficialMarketEvidence,Error>{
+        let value=self.historical_market(ticker)?;
+        Self::classify_network_result(ticker,&value,
+            "kalshi-public-historical-market-get")
+    }
+    fn classify_network_result(ticker:&str,value:&serde_json::Value,origin:&str)
+        ->Result<OfficialMarketEvidence,Error>{
         let observed_ns=std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|_|Error::InvalidFinal)?.as_nanos();
         let retrieved_at_ns=i64::try_from(observed_ns)
             .map_err(|_|Error::InvalidFinal)?;
-        let canonical=serde_json::to_vec(&value)?;
+        let canonical=serde_json::to_vec(value)?;
         let mut result=parse_official_market(ticker,&canonical,retrieved_at_ns)?;
         // Only this reviewed HTTPS GET can mark an official live response.
         // Timestamp is captured here, not accepted from an arbitrary caller.
