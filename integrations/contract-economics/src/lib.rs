@@ -321,6 +321,14 @@ pub fn validate_primary_windows(
         source.first_second_utc!=contract.window.opening_start_sec{
         return Err(Error::InvalidPrimary);
     }
+    // The complete primary capture cannot be observed before its last
+    // second has elapsed. This is separate from source/data authenticity.
+    let last=source.ticks.iter().map(|t|t.second_utc).max()
+        .ok_or(Error::MissingPrimary)?;
+    let last_tick_end_ns=last.checked_add(1)
+        .and_then(|s|s.checked_mul(1_000_000_000))
+        .ok_or(Error::Overflow)?;
+    if source.observed_at_ns<last_tick_end_ns{return Err(Error::InvalidPrimary);}
     let source_ticks=source.ticks.iter().map(|t|IndexTick{
         second_utc:t.second_utc,value_1e8:t.value_1e8}).collect::<Vec<_>>();
     Ok(compare_window_averages(&source_ticks,
@@ -399,6 +407,8 @@ pub fn assess_official(
         Some(o)=>{
             if !o.is_authenticated_public_get(){
                 out.blocked_reasons.push("UNVERIFIED_LOCAL_OFFICIAL_PAYLOAD".into());
+            }else if o.retrieved_at_ns<contract.expiration_ns{
+                out.blocked_reasons.push("OFFICIAL_RESPONSE_PREDATES_EXPIRATION".into());
             }else if let Some(w)=official_winner(o){
                 out.tier=OutcomeTier::FreshOfficial;
                 out.official_winner=Some(as_text(w));
@@ -604,8 +614,8 @@ mod tests{
             provider:"CF Benchmarks".into(),benchmark_id:"BRTI".into(),
             methodology_revision:"reviewed-r1".into(),
             source_sha256:"c".repeat(64),ticks_sha256:digest,
-            document_sha256:"a".repeat(64),retrieved_at_ns:100,
-            observed_at_ns:90,first_second_utc:0,ticks,
+            document_sha256:"a".repeat(64),retrieved_at_ns:250_000_000_000,
+            observed_at_ns:200_000_000_000,first_second_utc:0,ticks,
         };
         let result=validate_primary_windows(&rule(),&data).unwrap();
         assert_eq!(result.derived_winner,Side::Yes);
@@ -636,7 +646,8 @@ mod tests{
         let p=PrimaryImport{provider:"CF Benchmarks".into(),benchmark_id:"BRTI".into(),
             methodology_revision:"reviewed-r1".into(),source_sha256:"c".repeat(64),
             ticks_sha256,document_sha256:"a".repeat(64),
-            retrieved_at_ns:20,observed_at_ns:10,
+            retrieved_at_ns:250_000_000_000,
+            observed_at_ns:200_000_000_000,
             first_second_utc:0,ticks};
         assert_eq!(validate_primary_windows(&rule(),&p),
             Err(Error::Window(phoenix_settlement::Error::MissingSample)));
