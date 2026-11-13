@@ -579,3 +579,78 @@ mod archived_row_tests{
         assert_eq!(seen,vec![("P1:1".into(),1,vec![0,22,250])]);
     }
 }
+
+
+#[cfg(test)]
+mod external_manifest_paging_tests {
+    use super::*;
+    use tempfile::TempDir;
+    fn scope()->SourceScope{
+        SourceScope{feed:"kalshi".into(),session:"offline".into(),
+            market:"BTC".into(),observed_sequence_gaps:0,quality_flags:vec![],
+            source_manifest_sha256:None}
+    }
+    fn row(id:&str,n:u64)->EventRow{
+        EventRow{event_id:id.into(),data:Row{
+            feed:"kalshi".into(),session:"offline".into(),market:"BTC".into(),
+            exchange_ns:n as i64,received_ns:n as i64+1,
+            sequence:n,kind:1,payload:vec![n as u8,1]}}
+    }
+    #[test]
+    fn disk_mode_does_not_retain_historical_event_identity_lists(){
+        let t=TempDir::new().unwrap();let root=t.path().join("research");
+        let mut a=Archive::open_external_index_with_limit(&root,8).unwrap();
+        for i in 1..=7{
+            a.publish_with_external_lookup(scope(),&[row(&format!("e{i}"),i)],
+                |_|Ok(None)).unwrap();
+        }
+        assert_eq!(a.committed_partitions(),7);
+        assert_eq!(a.manifests.len(),0);
+        assert_eq!(a.ids.len(),0);
+        assert_eq!(a.verify_all().unwrap(),7);
+        drop(a);
+        let b=Archive::open_external_index_with_limit(&root,8).unwrap();
+        assert_eq!(b.committed_partitions(),7);
+        assert!(b.manifests.is_empty());
+        assert!(b.ids.is_empty());
+        let mut count=0;
+        b.visit_verified_rows(|_,_,_|{count+=1;Ok(())}).unwrap();
+        assert_eq!(count,7);
+    }
+    #[test]
+    fn external_partition_cap_is_explicit_and_reopen_respects_limit(){
+        let t=TempDir::new().unwrap();let root=t.path().join("research");
+        let mut a=Archive::open_external_index_with_limit(&root,2).unwrap();
+        for n in 1..=2{
+            a.publish_with_external_lookup(scope(),&[row(&format!("p{n}"),n)],
+                |_|Ok(None)).unwrap();
+        }
+        assert!(matches!(a.publish_with_external_lookup(scope(),&[row("overflow",3)],
+            |_|Ok(None)),Err(Error::CapacityExceeded)));
+        drop(a);
+        assert!(matches!(Archive::open_external_index_with_limit(&root,1),
+            Err(Error::CapacityExceeded)));
+    }
+    #[test]
+    fn lazy_manifest_validation_detects_tampering(){
+        let t=TempDir::new().unwrap();let root=t.path().join("research");
+        let mut a=Archive::open_external_index(&root).unwrap();
+        let id=a.publish_with_external_lookup(scope(),&[row("only",5)],
+            |_|Ok(None)).unwrap().partition_id.unwrap();
+        drop(a);
+        let b=Archive::open_external_index(&root).unwrap();
+        let mut count=0;
+        b.visit_verified_partition(&id,|m,e,r|{
+            assert_eq!(m.partition_id,id);
+            assert_eq!(e.id,"only");
+            assert_eq!(r.sequence,5);
+            count+=1;Ok(())
+        }).unwrap();
+        assert_eq!(count,1);
+        let path=manifest_path(&root,&id);
+        let mut m:SealedPartition=serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        m.events[0].row_sha256="f".repeat(64);
+        fs::write(path,serde_json::to_vec(&m).unwrap()).unwrap();
+        assert!(matches!(b.verify_all(),Err(Error::DigestMismatch(_))));
+    }
+}
