@@ -39,3 +39,8 @@ PR #13 supplies a standalone deterministic synthetic/research performance report
 - Source-level independent Rust mathematical ports from Apache-2.0 Oracle3 and MIT Ryan Frigo, plus an MIT Tarpboi-inspired risk guard, have passed standalone CI. These are **not direct upstream dependencies** and are not deployed.
 - A minimal projected sample of a **real archived October 24 BTC paper ledger** passed fixed-point P&L arithmetic on Windows/Linux. It is not a raw orderbook replay, actual venue fill, independent index settlement or verified after-cost investment strategy.
 - The full assembled integration workflow now includes the core, L2 codec, archive, historical-input, paper journal, reporting, HFT queue, three port families and real-ledger parity. Treat the latest CI result as authoritative; a passing fixture matrix cannot promote release gates G4/G5.
+
+
+## 2026-11-12 research source and indexed-storage integration
+
+Draft PR #19 provides a verified seal-then-redb publisher wrapper: Parquet/manifest SHA and per-event row hash are checked on restart, and missing redb commits are replayed transactionally; orphan DB markers fail closed. Initial Windows+Linux CI passed. **G3 remains PARTIAL** because original archive still holds 250k in-memory IDs, there is no tested disk-mode migration or Windows power-loss proof. Draft PR #17 includes a read-only Windows original ZIP launcher with a 24-member SHA-validating allowlist, and 24/24 selected actual Parquet source bytes have been independently hashed. **G4/G5 remain blocked**: no independent CF primary BRTI, fresh official result, complete book initialization, or actual original-file Rust run yet. See [checkpoint](CHECKPOINT_SEALED_INDEX_SOURCE_2026-11-12.md).
