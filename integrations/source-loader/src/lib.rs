@@ -328,3 +328,160 @@ mod tests{
             Initialization::InvalidBook);
     }
 }
+
+
+/// Evidence-preserving exact fractional L2 parser. Source snapshots, session
+/// and shared-channel continuity must be verified before any fill simulation.
+pub mod forensic {
+    use std::collections::BTreeMap;
+    use phoenix_domain::{Price,Side};
+    use phoenix_kalshi_wire::{ArchivedDecoded,Message};
+    use super::{CapturedMessage,Initialization};
+    #[derive(Debug,Clone,PartialEq,Eq)]
+    pub enum Error {WrongMarket,MissingSnapshot,SessionChanged,DuplicateSequence,
+        TimeReversal,NegativeDepth,InvalidSnapshot}
+    pub struct Book {
+        market:String,connection:Option<String>,sid:Option<u64>,
+        last_seq:Option<u64>,last_received:Option<i64>,
+        yes:BTreeMap<Price,u64>,no:BTreeMap<Price,u64>,
+        status:Initialization,pub channel_sequence_ambiguous:bool,
+    }
+    impl Book {
+        pub fn new(market:&str)->Self{
+            Self{market:market.into(),connection:None,sid:None,last_seq:None,
+                last_received:None,yes:BTreeMap::new(),no:BTreeMap::new(),
+                status:Initialization::UnknownInitialization,
+                channel_sequence_ambiguous:false}
+        }
+        pub fn status(&self)->Initialization{self.status}
+        pub fn best_bid_fp(&self,side:Side)->Option<(Price,u64)>{
+            let m=match side{Side::Yes=>&self.yes,Side::No=>&self.no};
+            m.iter().next_back().map(|(p,q)|(*p,*q))
+        }
+        pub fn best_ask_fp(&self,side:Side)->Option<(Price,u64)>{
+            let m=match side{Side::Yes=>&self.no,Side::No=>&self.yes};
+            m.iter().next_back().map(|(p,q)|(p.complement(),*q))
+        }
+        fn reset(&mut self){
+            self.yes.clear();self.no.clear();self.connection=None;self.sid=None;
+            self.last_seq=None;self.last_received=None;
+            self.status=Initialization::UnknownInitialization;
+        }
+        pub fn apply(&mut self,event:&CapturedMessage,
+            decoded:&ArchivedDecoded)->Result<(),Error>{
+            let (market,sid,seq,at)=match &decoded.message{
+                Message::Snapshot(s)=>(s.market.as_str(),s.sid,s.sequence,s.received_ns),
+                Message::Delta(d)=>(d.market.as_str(),d.sid,d.sequence,d.received_ns),
+                _=>return Ok(()),
+            };
+            if market!=self.market||event.ticker!=self.market||
+                event.sid!=Some(sid)||event.seq!=Some(seq){
+                return Err(Error::WrongMarket);
+            }
+            if self.last_received.is_some_and(|n|at<n){
+                self.reset();return Err(Error::TimeReversal);
+            }
+            match &decoded.message {
+                Message::Snapshot(s)=>{
+                    let build=|items:&[(Price,u64)]|->Result<BTreeMap<Price,u64>,Error>{
+                        let mut m=BTreeMap::new();
+                        for (p,q) in items{
+                            if *q==0||m.insert(*p,*q).is_some(){
+                                return Err(Error::InvalidSnapshot);
+                            }
+                        }
+                        Ok(m)
+                    };
+                    self.yes=build(&s.yes_fp)?;
+                    self.no=build(&s.no_fp)?;
+                    self.connection=Some(event.connection_id.clone());
+                    self.sid=Some(sid);self.last_seq=Some(seq);
+                    self.last_received=Some(at);
+                    // A snapshot in a market-only extract does not prove
+                    // complete channel, reconnection, or upstream provenance.
+                    self.status=Initialization::PartialInitialization;
+                    Ok(())
+                },
+                Message::Delta(d)=>{
+                    if self.connection.is_none(){return Err(Error::MissingSnapshot);}
+                    if self.connection.as_deref()!=Some(event.connection_id.as_str())||
+                        self.sid!=Some(sid){
+                        self.reset();return Err(Error::SessionChanged);
+                    }
+                    if self.last_seq.is_some_and(|last|seq<=last){
+                        return Err(Error::DuplicateSequence);
+                    }
+                    if self.last_seq.is_some_and(|last|seq>last.saturating_add(1)){
+                        // Other markets share sid/seq: NOT gap proof.
+                        self.channel_sequence_ambiguous=true;
+                    }
+                    let m=match d.side{Side::Yes=>&mut self.yes,Side::No=>&mut self.no};
+                    let old=m.get(&d.price).copied().unwrap_or(0);
+                    let q=i128::from(old)+i128::from(d.delta_fp);
+                    if q<0||q>i128::from(u64::MAX){
+                        self.status=Initialization::InvalidBook;
+                        return Err(Error::NegativeDepth);
+                    }
+                    if q==0{m.remove(&d.price);}
+                    else{m.insert(d.price,q as u64);}
+                    self.last_seq=Some(seq);self.last_received=Some(at);
+                    Ok(())
+                },
+                _=>Ok(())
+            }
+        }
+        pub fn verified_executable(&self)->bool{
+            // Fail closed: only a full-channel, authenticated snapshot
+            // verifier may ever promote this in a future component.
+            false
+        }
+    }
+    #[cfg(test)]
+    mod tests{
+        use super::*;
+        use phoenix_kalshi_wire::decode_archived;
+        fn row(seq:u64,at:i64,connection:&str)->CapturedMessage{
+            CapturedMessage{member:"fixture".into(),row_index:0,ticker:"M".into(),
+                received_ns:at,raw_sending_ns:1_000_000_000,
+                raw_event_ns:None,source_clock_ahead:false,
+                connection_id:connection.into(),sid:Some(7),seq:Some(seq),
+                raw_sha256:"x".into(),raw_message:String::new()}
+        }
+        fn snap()->ArchivedDecoded{
+            decode_archived(r#"{"type":"orderbook_snapshot","sid":7,"seq":1,
+                "sending_ts_ms":1000,"msg":{"clock":1,"market_ticker":"M",
+                "yes_dollars_fp":[["0.4000","2.00"]],
+                "no_dollars_fp":[["0.5500","1.25"]]}}"#,1_100_000_000).unwrap()
+        }
+        fn delta(seq:u64,q:&str)->ArchivedDecoded{
+            let s=format!(r#"{{"type":"orderbook_delta","sid":7,"seq":{seq},
+                "sending_ts_ms":1000,"msg":{{"clock":2,"market_ticker":"M",
+                "side":"yes","price_dollars":"0.4000","delta_fp":"{q}"}}}}"#);
+            decode_archived(&s,1_150_000_000).unwrap()
+        }
+        #[test]fn fractional_delta_from_real_format_and_no_fill_promotion(){
+            let mut b=Book::new("M");
+            assert_eq!(b.apply(&row(2,1_150_000_000,"A"),&delta(2,"1.00")),
+                Err(Error::MissingSnapshot));
+            b.apply(&row(1,1_100_000_000,"A"),&snap()).unwrap();
+            b.apply(&row(2,1_150_000_000,"A"),&delta(2,"-0.25")).unwrap();
+            assert_eq!(b.best_bid_fp(Side::Yes),
+                Some((Price::new(4000).unwrap(),175)));
+            assert_eq!(b.best_ask_fp(Side::Yes),
+                Some((Price::new(4500).unwrap(),125)));
+            assert_eq!(b.status(),Initialization::PartialInitialization);
+            assert!(!b.verified_executable());
+        }
+        #[test]fn reconnect_and_invalid_depth_stop_replay(){
+            let mut b=Book::new("M");
+            b.apply(&row(1,1_100_000_000,"A"),&snap()).unwrap();
+            assert_eq!(b.apply(&row(2,1_150_000_000,"B"),&delta(2,"1.00")),
+                Err(Error::SessionChanged));
+            assert_eq!(b.status(),Initialization::UnknownInitialization);
+            b.apply(&row(1,1_100_000_000,"A"),&snap()).unwrap();
+            assert_eq!(b.apply(&row(2,1_150_000_000,"A"),&delta(2,"-4.00")),
+                Err(Error::NegativeDepth));
+            assert_eq!(b.status(),Initialization::InvalidBook);
+        }
+    }
+}
