@@ -94,7 +94,11 @@ impl ReadOnlyKalshi {
         ->Result<OfficialMarketEvidence,Error>{
         let value=self.market(ticker)?;
         let canonical=serde_json::to_vec(&value)?;
-        parse_official_market(ticker,&canonical,retrieved_at_ns)
+        let mut result=parse_official_market(ticker,&canonical,retrieved_at_ns)?;
+        // Only this hard-coded reviewed HTTPS official GET can set the
+        // provenance bit. Local fixture import cannot mark a fresh final.
+        result.authenticated_public_get=true;
+        Ok(result)
     }
 
 }
@@ -107,6 +111,12 @@ pub enum OfficialStatus {
 pub struct OfficialMarketEvidence {
     pub ticker:String,pub market_id:String,pub status:OfficialStatus,
     pub source_sha256:String,pub retrieved_at_ns:i64,pub source_id:String,
+    authenticated_public_get:bool,
+}
+impl OfficialMarketEvidence{
+    pub fn is_authenticated_public_get(&self)->bool{
+        self.authenticated_public_get
+    }
 }
 /// Pure mock-friendly parser. SHA256 covers canonical JSON bytes provided by
 /// this call, not a claim that the HTTP transport was independently audited.
@@ -138,7 +148,8 @@ pub fn parse_official_market(expected:&str,body:&[u8],retrieved_at_ns:i64)
     Ok(OfficialMarketEvidence{
         ticker:ticker.to_owned(),market_id:market_id.to_owned(),
         status:classification,source_sha256:format!("{:x}",Sha256::digest(body)),
-        retrieved_at_ns,source_id:"kalshi-public-market-get".into(),
+        retrieved_at_ns,source_id:"unverified-local-json".into(),
+        authenticated_public_get:false,
     })
 }
 #[cfg(test)]
