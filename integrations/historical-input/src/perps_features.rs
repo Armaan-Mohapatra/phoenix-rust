@@ -109,6 +109,9 @@ impl CausalPerpsBuffer{
         let slot=self.pairs.entry(key).or_insert_with(||PairBuffer{
             session:r.source_session.clone(),last_received_ns:r.received_ns,
             session_reset:false,records:VecDeque::new(),seen:BTreeMap::new()});
+        if r.received_ns<slot.last_received_ns{
+            return Err(Error::OutOfOrder);
+        }
         if slot.session!=r.source_session{
             // Restart source continuity is NOT implicitly proven by a new
             // observation. Until an external authenticated session anchor is
