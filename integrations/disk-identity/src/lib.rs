@@ -1,9 +1,9 @@
 //! Research-only disk-backed event identity index; NEVER open active SQLite
 //! or WAL. The in-memory id HashMap in durable-archive remains unchanged
 //! until indexed migration/partition recovery correctness is independently proven.
-use redb::{Database,Builder,TableDefinition,ReadableTable};
+use redb::{Database,Builder,TableDefinition,ReadableTable,ReadableDatabase};
 use sha2::{Sha256,Digest};
-use std::{collections::BTreeMap,fs::{self,File,OpenOptions},io::Write,path::{Path,PathBuf}};
+use std::{collections::BTreeMap,fs::{self,OpenOptions},io::Write,path::{Path,PathBuf}};
 const MARKER:&str="PHOENIX_RESEARCH_INDEX_ONLY";
 const CACHE_BYTES:usize=16*1024*1024;
 const MAX_EVENTS_PER_TRANSACTION:usize=256;
@@ -65,13 +65,15 @@ impl Index {
         if !id_ok(id){return Err(Error::InvalidInput);}
         let tx=self.db.begin_read().map_err(io)?;
         let table=tx.open_table(EVENTS).map_err(io)?;
-        Ok(table.get(id).map_err(io)?.map(|v|v.value().to_owned()))
+        let result=table.get(id).map_err(io)?.map(|v|v.value().to_owned());
+        Ok(result)
     }
     pub fn partition_indexed(&self,sha:&str)->Result<bool,Error>{
         if !sha_ok(sha){return Err(Error::InvalidInput);}
         let tx=self.db.begin_read().map_err(io)?;
         let table=tx.open_table(PARTITIONS).map_err(io)?;
-        Ok(table.get(sha).map_err(io)?.is_some())
+        let exists=table.get(sha).map_err(io)?.is_some();
+        Ok(exists)
     }
     /// Transaction commits manifest marker and all event identities AT ONCE.
     /// Caller MUST first verify the sealed data partition + manifest SHA256,
@@ -94,8 +96,10 @@ impl Index {
         let tx=self.db.begin_write().map_err(io)?;
         {
             let table=tx.open_table(PARTITIONS).map_err(io)?;
-            if let Some(existing)=table.get(partition_sha).map_err(io)?{
-                if existing.value()!=encoded{return Err(Error::ConflictingPartition);}
+            let existing=table.get(partition_sha).map_err(io)?
+                .map(|guard|guard.value().to_owned());
+            if let Some(existing)=existing {
+                if existing!=encoded{return Err(Error::ConflictingPartition);}
                 return Ok(ResultCount{inserted:0,existing:events.len(),already_committed:true});
             }
         }
