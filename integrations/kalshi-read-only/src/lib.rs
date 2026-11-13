@@ -1,13 +1,15 @@
 //! Public Kalshi market-data GET adapter. No authentication, WebSocket,
 //! order APIs, POST/PUT/DELETE, portfolio data, or trading functionality.
 //! Network is NEVER accessed by unit tests.
-use std::{io::Read,time::Duration};
+use std::{io::Read,time::{Duration,Instant},sync::{Arc,Mutex}};
+use sha2::{Digest,Sha256};
 
 pub const BASE:&str="https://external-api.kalshi.com/trade-api/v2";
 pub const MAX_RESPONSE_BYTES:u64=2_000_000;
 #[derive(Debug)]
 pub enum Error {InvalidTicker,InvalidLimit,InvalidCursor,Http(reqwest::Error),
-    Io(std::io::Error),BadStatus(u16),ResponseTooLarge,Json(serde_json::Error)}
+    Io(std::io::Error),BadStatus(u16),ResponseTooLarge,Json(serde_json::Error),
+    RateLimited,InvalidFinal,MissingMarketId}
 impl From<reqwest::Error> for Error {fn from(x:reqwest::Error)->Self{Self::Http(x)}}
 impl From<std::io::Error> for Error {fn from(x:std::io::Error)->Self{Self::Io(x)}}
 impl From<serde_json::Error> for Error {fn from(x:serde_json::Error)->Self{Self::Json(x)}}
@@ -17,16 +19,24 @@ fn good_ticker(t:&str)->bool {
         b.is_ascii_uppercase()||b.is_ascii_digit()||b==b'-'||b==b'_')
 }
 #[derive(Clone,Debug)]
-pub struct ReadOnlyKalshi {client:reqwest::blocking::Client}
+pub struct ReadOnlyKalshi {
+    client:reqwest::blocking::Client,
+    minimum_interval:Duration,
+    last_request:Arc<Mutex<Option<Instant>>>,
+}
 impl ReadOnlyKalshi {
-    pub fn new()->Result<Self,Error>{
+    pub fn new()->Result<Self,Error>{Self::with_minimum_interval(Duration::from_secs(1))}
+    /// A shared client-level lower-bound on request spacing; never sleeps
+    /// or retries internally. The user explicitly invokes each historical GET.
+    pub fn with_minimum_interval(minimum_interval:Duration)->Result<Self,Error>{
         let client=reqwest::blocking::Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
             .user_agent("PhoenixRustOfflineResearch/0.1 (read-only)")
             .build()?;
-        Ok(Self{client})
+        Ok(Self{client,minimum_interval,
+            last_request:Arc::new(Mutex::new(None))})
     }
     fn build_url(path:&str,params:&[(&str,&str)]) -> reqwest::Url {
         let mut url=reqwest::Url::parse(BASE).expect("fixed reviewed Kalshi HTTPS URL");
@@ -37,6 +47,10 @@ impl ReadOnlyKalshi {
         url
     }
     fn get(&self,url:reqwest::Url)->Result<serde_json::Value,Error> {
+        let mut lock=self.last_request.lock().map_err(|_|Error::RateLimited)?;
+        if lock.as_ref().is_some_and(|previous|
+            previous.elapsed()<self.minimum_interval){return Err(Error::RateLimited);}
+        *lock=Some(Instant::now());drop(lock);
         let response=self.client.get(url).header("Accept","application/json").send()?;
         let status=response.status();
         if !status.is_success(){return Err(Error::BadStatus(status.as_u16()));}
@@ -73,10 +87,94 @@ impl ReadOnlyKalshi {
         let params=depth_text.as_deref().map(|s|vec![("depth",s)]).unwrap_or_default();
         self.get(Self::build_url(&format!("markets/{ticker}/orderbook"),&params))
     }
+    /// Exactly one manually invoked read-only official historical market GET.
+    /// A finalized record is admissible only with the exact expected ticker
+    /// and an explicit market_id in the official response.
+    pub fn official_result(&self,ticker:&str,retrieved_at_ns:i64)
+        ->Result<OfficialMarketEvidence,Error>{
+        let value=self.market(ticker)?;
+        let canonical=serde_json::to_vec(&value)?;
+        parse_official_market(ticker,&canonical,retrieved_at_ns)
+    }
+
+}
+
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+pub enum OfficialStatus {
+    FinalYes,FinalNo,Pending,Cancelled,Void,Scalar,Unknown,
+}
+#[derive(Debug,Clone)]
+pub struct OfficialMarketEvidence {
+    pub ticker:String,pub market_id:String,pub status:OfficialStatus,
+    pub source_sha256:String,pub retrieved_at_ns:i64,pub source_id:String,
+}
+/// Pure mock-friendly parser. SHA256 covers canonical JSON bytes provided by
+/// this call, not a claim that the HTTP transport was independently audited.
+pub fn parse_official_market(expected:&str,body:&[u8],retrieved_at_ns:i64)
+    ->Result<OfficialMarketEvidence,Error>{
+    if !good_ticker(expected)||body.is_empty()||
+        body.len() as u64>MAX_RESPONSE_BYTES||retrieved_at_ns<=0{
+        return Err(Error::InvalidFinal);
+    }
+    let root:serde_json::Value=serde_json::from_slice(body)?;
+    let m=root.get("market").unwrap_or(&root);
+    let ticker=m.get("ticker").and_then(|v|v.as_str())
+        .ok_or(Error::InvalidFinal)?;
+    if ticker!=expected{return Err(Error::InvalidFinal);}
+    // Never invent an ID when an API response provides only a ticker.
+    let market_id=m.get("market_id").and_then(|v|v.as_str())
+        .filter(|v|!v.is_empty()).ok_or(Error::MissingMarketId)?;
+    let status=m.get("status").and_then(|v|v.as_str()).unwrap_or("");
+    let result=m.get("result").and_then(|v|v.as_str()).unwrap_or("");
+    let classification=match (status,result){
+        ("settled"|"finalized","yes"|"YES"|"Y")=>OfficialStatus::FinalYes,
+        ("settled"|"finalized","no"|"NO"|"N")=>OfficialStatus::FinalNo,
+        ("cancelled"|"canceled",_)=>OfficialStatus::Cancelled,
+        ("voided"|"void",_)=>OfficialStatus::Void,
+        ("settled"|"finalized","scalar")=>OfficialStatus::Scalar,
+        ("open"|"active"|"closed"|"determined"|"initialized",_)=>OfficialStatus::Pending,
+        _=>OfficialStatus::Unknown,
+    };
+    Ok(OfficialMarketEvidence{
+        ticker:ticker.to_owned(),market_id:market_id.to_owned(),
+        status:classification,source_sha256:format!("{:x}",Sha256::digest(body)),
+        retrieved_at_ns,source_id:"kalshi-public-market-get".into(),
+    })
 }
 #[cfg(test)]
 mod tests{
     use super::*;
+    #[test]fn exact_official_final_is_distinct_from_closed_market(){
+        let yes=br#"{"market":{"ticker":"KXBTC-TEST","market_id":"1",
+            "status":"settled","result":"yes"}}"#;
+        let record=parse_official_market("KXBTC-TEST",yes,100).unwrap();
+        assert_eq!(record.status,OfficialStatus::FinalYes);
+        let closed=br#"{"market":{"ticker":"KXBTC-TEST","market_id":"1",
+            "status":"closed","result":"yes"}}"#;
+        assert_eq!(parse_official_market("KXBTC-TEST",closed,100)
+            .unwrap().status,OfficialStatus::Pending);
+    }
+    #[test]fn missing_market_identity_and_conflicting_ticker_block(){
+        let b=br#"{"market":{"ticker":"MISMATCH","market_id":"1",
+            "status":"settled","result":"yes"}}"#;
+        assert!(parse_official_market("KXBTC-TEST",b,100).is_err());
+        let missing=br#"{"market":{"ticker":"KXBTC-TEST",
+            "status":"settled","result":"no"}}"#;
+        assert!(matches!(parse_official_market("KXBTC-TEST",missing,100),
+            Err(Error::MissingMarketId)));
+    }
+    #[test]fn cancelled_void_scalar_never_promote_binary_final(){
+        for (kind,result,expected) in [
+            ("canceled","yes",OfficialStatus::Cancelled),
+            ("void","yes",OfficialStatus::Void),
+            ("settled","scalar",OfficialStatus::Scalar),
+        ]{
+            let data=format!(r#"{{"market":{{"ticker":"KXBTC-TEST",
+                "market_id":"1","status":"{kind}","result":"{result}"}}}}"#);
+            assert_eq!(parse_official_market("KXBTC-TEST",data.as_bytes(),100)
+                .unwrap().status,expected);
+        }
+    }
     #[test]fn urls_are_https_and_get_only(){
         let u=ReadOnlyKalshi::build_url("markets/BTC-15M/orderbook",&[("depth","5")]);
         assert_eq!(u.scheme(),"https");
