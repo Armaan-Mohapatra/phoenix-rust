@@ -188,6 +188,11 @@ fn read_sealed_manifest(root:&Path,path:&Path)->Result<SealedPartition,Error>{
 
 
 fn reject_reparse(path:&Path)->Result<(),Error>{
+    if path.components().any(|p|{
+        let n=p.as_os_str().to_string_lossy();
+        ["TradingNextData","KalshiData","KalshiRuntime","paper15m_runtime"]
+            .iter().any(|protected|n.eq_ignore_ascii_case(protected))
+    }){return Err(Error::UnsafePath);}
     if path.components().any(|p|matches!(p,std::path::Component::ParentDir)){
         return Err(Error::UnsafePath);
     }
