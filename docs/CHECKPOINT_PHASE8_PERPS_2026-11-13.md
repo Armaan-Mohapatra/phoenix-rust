@@ -3,7 +3,7 @@
 **Phase:** 8 Historical Perps. **Status:** CODE_WRITTEN_UNTESTED / ORIGINAL_PERPS_SCHEMA_UNVERIFIED.
 **Parent:** Phase 7 branch `codex/phase7-multimarket-history-v1` at `6ed6febb90d51f045cd7b1366614ac1c732a0a37` (draft PR #29).
 **Child:** `codex/phase8-perps-history-v1`. Re-fetch final GitHub PR/HEAD after this file is committed.
-**Last pre-checkpoint commit:** `897cf4fe97ce89b1ba067db3498752e4a9e3c24a`.
+**Last source/documentation commit before this refreshed checkpoint:** `280cde6bf8056b142268bb9e87f902d6a26de451`.
 
 ## Source changes
 
@@ -13,7 +13,8 @@
 4. `integrations/source-loader/src/perps_bridge.rs` — exact Phase 7 market identity, replay SHA and receipt cutoff to Perps causal join. Explicit no empirical execution or independent settlement promotion.
 5. `integrations/source-loader/src/lib.rs` and `Cargo.toml` — expose and depend on historical-input without a dependency cycle.
 6. `docs/PHASE8_PERPS_HISTORY_AND_CAUSAL_FEATURES.md` — complete data contracts, limitations and synthetic test inventory.
-7. This checkpoint file.
+7. `integrations/source-loader/src/bin/phoenix-multimarket-replay.rs` — cross-phase compatible repair: accept full prior output object or extracted `next_checkpoints` array; read cap 20 MiB and parser regression authored NOT RUN. Change is on Phase 8 child only; Phase 7 parent remains unchanged.
+8. This checkpoint file.
 
 ## Static cross-module review
 
@@ -21,7 +22,7 @@ Text inspection confirmed module exports, Cargo dependency edges, explicit schem
 
 ## Tests authored (all NOT RUN)
 
-Multiple synthetic venues, symbol/quote base mapping, exact decimal and contract-unit precision, source schema/partition provenance, missing/crossed/unsorted depth, duplicate conflict, timestamps and clock skew, per-venue out-of-order events and session resets, stale/future observations, missing Perps history, spread/orderbook imbalance, positive/negative returns, mark/index divergence, aggressor uncertainty, bounded memory, restart hash tamper and deterministic resumption, exact Phase 7 bridge and source identity mismatch. Historical-input preexisting timestamp/Parquet regression source retained.
+Multiple synthetic venues, symbol/quote base mapping, exact decimal and contract-unit precision, source schema/partition provenance, missing/crossed/unsorted depth, duplicate conflict, timestamps and clock skew, per-venue out-of-order events and session resets, stale/future observations, missing Perps history, spread/orderbook imbalance, positive/negative returns, mark/index divergence, aggressor uncertainty, bounded memory, restart hash tamper and deterministic resumption, exact Phase 7 bridge and source identity mismatch. Historical-input preexisting timestamp/Parquet regression source retained. Phase 7 CLI resume-report parser regression also authored, NOT RUN.
 
 ## Material unknowns
 
