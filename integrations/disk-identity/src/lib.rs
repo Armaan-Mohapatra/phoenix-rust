@@ -81,6 +81,21 @@ impl Index {
         }
         Ok(ids)
     }
+    /// Stream committed partition IDs in key order, keeping no partition
+    /// vector or event-ID map in heap memory. The caller may inspect an
+    /// arbitrarily large committed database with a constant-size cursor.
+    pub fn visit_partition_ids<F>(&self,mut visit:F)->Result<usize,Error>
+    where F:FnMut(&str)->Result<(),Error>{
+        let tx=self.db.begin_read().map_err(io)?;
+        let table=tx.open_table(PARTITIONS).map_err(io)?;
+        let mut n=0usize;
+        for entry in table.iter().map_err(io)?{
+            let (key,_value)=entry.map_err(io)?;
+            visit(key.value())?;
+            n=n.checked_add(1).ok_or(Error::CapacityExceeded)?;
+        }
+        Ok(n)
+    }
     pub fn partition_indexed(&self,sha:&str)->Result<bool,Error>{
         if !sha_ok(sha){return Err(Error::InvalidInput);}
         let tx=self.db.begin_read().map_err(io)?;
@@ -177,6 +192,26 @@ mod tests{
         fs::create_dir(&path).unwrap();
         assert!(matches!(Index::open(&path),Err(Error::NotResearchPath)));
         assert!(!path.join("identity.redb").exists());
+    }
+
+    #[test]
+    fn streaming_partition_walk_keeps_identity_index_on_disk(){
+        let t=TempDir::new().unwrap();let idx=Index::open(root(&t)).unwrap();
+        let mh=sha('f');
+        for n in 0..40u32{
+            let id=format!("{n:064x}");
+            let event=format!("market:event:{n}");
+            idx.commit_verified_partition(&id,&mh,&[(event.as_str(),mh.as_str())]).unwrap();
+        }
+        let mut observed=0usize;
+        let mut previous=String::new();
+        let count=idx.visit_partition_ids(|id|{
+            assert!(previous.as_str()<id);
+            previous=id.into();
+            observed+=1;Ok(())
+        }).unwrap();
+        assert_eq!((count,observed),(40,40));
+        assert_eq!(idx.get("market:event:39").unwrap(),Some(mh));
     }
     #[test]
     fn batch_is_bounded_to_existing_partition_size(){
