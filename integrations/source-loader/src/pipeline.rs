@@ -132,6 +132,19 @@ fn stable_message_key(event:&CapturedMessage,decoded:&ArchivedDecoded)->String{
         format!("unsequenced|{}|{}",event.member,event.row_index)
     }
 }
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+enum IdentityResult {New,ExactDuplicate,Conflict}
+fn check_identity(known:&mut BTreeMap<String,String>,key:String,sha:&str)
+    ->Result<IdentityResult,Error>{
+    if let Some(prior)=known.get(&key){
+        return Ok(if prior==sha{
+            IdentityResult::ExactDuplicate
+        }else{IdentityResult::Conflict});
+    }
+    if known.len()>=MAX_IDENTITIES{return Err(Error::Capacity);}
+    known.insert(key,sha.to_owned());
+    Ok(IdentityResult::New)
+}
 pub fn compare_projection(report:&ReplayReport,refs:&[ProjectionReference])
     ->Result<Vec<ProjectionComparison>,Error>{
     if refs.len()>MAX_CHECKPOINTS{return Err(Error::Capacity);}
@@ -199,15 +212,14 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
             next+=1;
         }
         let key=stable_message_key(event,decoded);
-        if let Some(previous)=keyed.get(&key){
-            if previous!=&event.raw_sha256{
-                conflicts+=1;
-                return Err(crate::Error::InvalidSource);
-            }
-            duplicates+=1;return Ok(());
+        let identity=check_identity(&mut keyed,key,&event.raw_sha256)
+            .map_err(|_|crate::Error::TooManyRows)?;
+        match identity{
+            IdentityResult::ExactDuplicate=>{duplicates+=1;return Ok(());},
+            IdentityResult::Conflict=>{conflicts+=1;
+                return Err(crate::Error::InvalidSource);},
+            IdentityResult::New=>{},
         }
-        if keyed.len()>=MAX_IDENTITIES{return Err(crate::Error::TooManyRows);}
-        keyed.insert(key,event.raw_sha256.clone());
         match &decoded.message{
             Message::Snapshot(_)=>snapshots+=1,
             Message::Delta(_)=>deltas+=1,
@@ -251,7 +263,8 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
     if missing_initial(book.status()){
         missing_evidence.push("UNVERIFIED_HISTORICAL_INITIAL_SNAPSHOT".into());
     }
-    if evidence.channel_runs.iter().any(|c|
+    // Missing channel evidence is not proof of clean subscription history.
+    if evidence.channel_runs.is_empty()||evidence.channel_runs.iter().any(|c|
         !c.complete_subscription_history_verified){
         missing_evidence.push("UNVERIFIED_FULL_SUBSCRIPTION_CONTINUITY".into());
     }
@@ -321,6 +334,16 @@ mod tests{
         assert_eq!(comparisons[0].bids_equal,Some(true));
         assert!(!comparisons[0].parity_is_historical_proof);
         assert!(!report.checkpoints[0].execution_eligible);
+    }
+    #[test]fn sequenced_identity_rejects_conflicts_and_exactly_deduplicates(){
+        let mut known=BTreeMap::new();
+        assert_eq!(check_identity(&mut known,"a:1:2:delta".into(),"aa").unwrap(),
+            IdentityResult::New);
+        assert_eq!(check_identity(&mut known,"a:1:2:delta".into(),"aa").unwrap(),
+            IdentityResult::ExactDuplicate);
+        assert_eq!(check_identity(&mut known,"a:1:2:delta".into(),"bb").unwrap(),
+            IdentityResult::Conflict);
+        assert_eq!(known.len(),1);
     }
     #[test]fn no_future_checkpoint_can_be_requested(){
         let req=Request{ticker:"M".into(),start_received_ns:10,end_received_ns:20,
