@@ -58,6 +58,9 @@ pub struct BookIntegrity {
     sending:Option<i64>,event_ns:Option<i64>,seq:Option<u64>,
     snapshots:usize,resnapshots:usize,reconnects:usize,invalid:usize,
     clock_uncertain:bool,class:BookClass,
+    // The one underlying forensic book is applied at most once per message.
+    // Replay may inspect the outcome without maintaining a competing book.
+    last_apply:Option<Result<(),forensic::Error>>,
 }
 impl BookIntegrity {
     pub fn new(ticker:&str)->Self{
@@ -67,7 +70,12 @@ impl BookIntegrity {
             first:None,last:None,sending:None,event_ns:None,seq:None,
             snapshots:0,resnapshots:0,reconnects:0,invalid:0,
             clock_uncertain:false,class:BookClass::UnknownInitialization,
+            last_apply:None,
         }
+    }
+    pub fn forensic_book(&self)->&forensic::Book{&self.book}
+    pub fn last_apply_result(&self)->Option<&Result<(),forensic::Error>>{
+        self.last_apply.as_ref()
     }
     pub fn best_bid_fp(&self,side:Side)->Option<(phoenix_domain::Price,u64)>{
         self.book.best_bid_fp(side)
@@ -78,17 +86,25 @@ impl BookIntegrity {
     /// Source event is already SHA-checked, typed and sorted by receipt time.
     /// Return a classification, not an order fill or verified executable book.
     pub fn observe(&mut self,e:&CapturedMessage,d:&ArchivedDecoded)->BookClass{
+        self.last_apply=None;
         if e.ticker!=self.market{
+            self.last_apply=Some(Err(forensic::Error::WrongMarket));
             self.class=BookClass::InvalidBook;return self.class;
         }
         if self.last.is_some_and(|last|e.received_ns<last){
+            self.last_apply=Some(Err(forensic::Error::TimeReversal));
             self.class=BookClass::InvalidBook;return self.class;
         }
         match &d.message{
             Message::Snapshot(s)=>{
-                if s.market!=self.market{return BookClass::InvalidBook;}
+                if s.market!=self.market{
+                    self.last_apply=Some(Err(forensic::Error::WrongMarket));
+                    self.class=BookClass::InvalidBook;return self.class;
+                }
                 let is_resnapshot=self.snapshots>0;
-                match self.book.apply(e,d){
+                let applied=self.book.apply(e,d);
+                self.last_apply=Some(applied.clone());
+                match applied{
                     Ok(())=>{
                         self.snapshots+=1;
                         if is_resnapshot{self.resnapshots+=1;}
@@ -111,13 +127,16 @@ impl BookIntegrity {
                     self.reconnects+=1;
                     // Trigger the existing forensic engine's session reset;
                     // do not leave last session's visible bids behind.
-                    let _=self.book.apply(e,d);
+                    let applied=self.book.apply(e,d);
+                    self.last_apply=Some(applied);
                     self.class=BookClass::ReconnectUnverified;
                     self.connection=None;
                     self.sid=None;
                     self.snap_hash=None;
                 }else{
-                    match self.book.apply(e,d){
+                    let applied=self.book.apply(e,d);
+                    self.last_apply=Some(applied.clone());
+                    match applied{
                         Ok(())=>{
                             self.first.get_or_insert(e.received_ns);
                             self.last=Some(e.received_ns);
@@ -369,6 +388,20 @@ mod tests{
         assert_eq!(result.channel_quality,
             ChannelQuality::ObservedWindowDuplicatesOrRegressions);
         assert!(!result.complete_subscription_history_verified);
+    }
+    #[test]fn book_integrity_exposes_exactly_one_forensic_application_result(){
+        let snapshot=r#"{"type":"orderbook_snapshot","sid":1,"seq":1,
+            "sending_ts_ms":1000,"msg":{"market_ticker":"M","clock":1,
+            "yes_dollars_fp":[["0.4000","1.00"]],
+            "no_dollars_fp":[["0.5000","1.00"]]}}"#;
+        let (e,d)=row(snapshot,1_100_000_000,1,1,"conn");
+        let mut integrity=BookIntegrity::new("M");
+        integrity.observe(&e,&d);
+        assert_eq!(integrity.last_apply_result(),Some(&Ok(())));
+        assert_eq!(integrity.forensic_book().best_bid_fp(Side::Yes),
+            integrity.best_bid_fp(Side::Yes));
+        // A second application would produce DuplicateSequence for deltas;
+        // replay consumes the recorded outcome instead of applying twice.
     }
     #[test]fn manifest_rankings_do_not_claim_certified_availability(){
         let data=[Candidate{market:"M".into(),

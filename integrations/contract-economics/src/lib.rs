@@ -46,7 +46,7 @@ impl WindowDefinition{
 }
 #[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct ContractDefinition{
-    pub ticker:String,pub market_id:String,
+    pub ticker:String,pub market_id:Option<String>,
     pub event_id:String,pub series:String,
     pub contract_type:ContractType,
     pub market_open_ns:i64,pub expiration_ns:i64,
@@ -61,7 +61,8 @@ pub struct ContractDefinition{
 }
 impl ContractDefinition{
     fn validate(&self)->Result<(),Error>{
-        if !valid_name(&self.ticker)||!valid_name(&self.market_id)||
+        if !valid_name(&self.ticker)||
+            self.market_id.as_deref().is_some_and(|id|!valid_name(id))||
             !valid_name(&self.event_id)||!valid_name(&self.series)||
             self.source_document_id.is_empty()||
             !sha_ok(&self.source_document_sha256)||!sha_ok(&self.version_sha256)||
@@ -264,6 +265,8 @@ pub struct PrimaryImport {
     pub provider:String,pub benchmark_id:String,
     pub methodology_revision:String,pub source_sha256:String,
     pub ticks_sha256:String,
+    // SHA of the primary benchmark methodology document, NOT the Kalshi
+    // contract rules document; these are independent provenance identities.
     pub document_sha256:String,pub retrieved_at_ns:i64,
     pub observed_at_ns:i64,pub first_second_utc:i64,
     pub ticks:Vec<PrimaryTick>,
@@ -283,6 +286,46 @@ pub fn primary_ticks_digest(ticks:&[PrimaryTick])->Result<String,Error>{
 pub trait PrimaryProvenanceVerifier {
     fn authenticate(&self,source:&PrimaryImport,contract:&ContractDefinition)->bool;
 }
+/// Every independent source hash is retained independently, never compared
+/// to an unrelated document merely because it is another SHA-256 digest.
+#[derive(Debug,Clone,Serialize,Deserialize)]
+pub struct SettlementProvenance{
+    pub contract_rules_document_sha256:String,
+    pub contract_registry_version_sha256:String,
+    pub primary_methodology_document_sha256:Option<String>,
+    pub primary_methodology_revision:Option<String>,
+    pub primary_response_sha256:Option<String>,
+    pub primary_observations_sha256:Option<String>,
+    pub official_response_sha256:Option<String>,
+    pub official_retrieved_at_ns:Option<i64>,
+    pub primary_retrieved_at_ns:Option<i64>,
+    pub primary_observed_at_ns:Option<i64>,
+}
+impl SettlementProvenance{
+    fn from_contract(c:&ContractDefinition)->Self{
+        Self{contract_rules_document_sha256:c.source_document_sha256.clone(),
+            contract_registry_version_sha256:c.version_sha256.clone(),
+            primary_methodology_document_sha256:None,
+            primary_methodology_revision:None,
+            primary_response_sha256:None,primary_observations_sha256:None,
+            official_response_sha256:None,official_retrieved_at_ns:None,
+            primary_retrieved_at_ns:None,primary_observed_at_ns:None}
+    }
+    fn with_official(mut self,o:&OfficialMarketEvidence)->Self{
+        self.official_response_sha256=Some(o.source_sha256.clone());
+        self.official_retrieved_at_ns=Some(o.retrieved_at_ns);
+        self
+    }
+    fn with_primary(mut self,p:&PrimaryImport)->Self{
+        self.primary_methodology_document_sha256=Some(p.document_sha256.clone());
+        self.primary_methodology_revision=Some(p.methodology_revision.clone());
+        self.primary_response_sha256=Some(p.source_sha256.clone());
+        self.primary_observations_sha256=Some(p.ticks_sha256.clone());
+        self.primary_retrieved_at_ns=Some(p.retrieved_at_ns);
+        self.primary_observed_at_ns=Some(p.observed_at_ns);
+        self
+    }
+}
 #[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct SettlementAssessment{
     pub tier:OutcomeTier,pub market:String,
@@ -290,11 +333,21 @@ pub struct SettlementAssessment{
     pub official_source_sha256:Option<String>,
     pub primary_source_sha256:Option<String>,
     pub blocked_reasons:Vec<String>,
+    pub provenance:SettlementProvenance,
     // Not publicly constructible: only a trusted primary verifier can set it.
     authenticated_primary:bool,
 }
 fn as_text(side:Side)->String{
     match side{Side::Yes=>"yes".into(),Side::No=>"no".into()}
+}
+/// Exact contract identity is required. The Kalshi API documents ticker as
+/// canonical; its market_id is optional. When both authoritative records
+/// contain an archived ID or event ticker they must not conflict.
+fn official_identity_matches(c:&ContractDefinition,o:&OfficialMarketEvidence)->bool{
+    o.ticker==c.ticker&&o.market_type.as_deref()==Some("binary")&&
+    !matches!((&o.market_id,&c.market_id),
+        (Some(official),Some(archived)) if official!=archived)&&
+    o.event_ticker.as_deref().map_or(true,|event|event==c.event_id)
 }
 fn official_winner(o:&OfficialMarketEvidence)->Option<Side>{
     match o.status{
@@ -315,7 +368,6 @@ pub fn validate_primary_windows(
         !sha_ok(&source.source_sha256)||!sha_ok(&source.document_sha256)||
         !sha_ok(&source.ticks_sha256)||
         primary_ticks_digest(&source.ticks)?!=source.ticks_sha256||
-        source.document_sha256!=contract.source_document_sha256||
         source.observed_at_ns>source.retrieved_at_ns||
         source.ticks.len()>MAX_TICKS||source.ticks.is_empty()||
         source.first_second_utc!=contract.window.opening_start_sec{
@@ -342,8 +394,11 @@ pub fn corroborate_primary(
     source:&PrimaryImport,verifier:&impl PrimaryProvenanceVerifier)
     ->Result<SettlementAssessment,Error>{
     contract.validate()?;
-    if official.ticker!=contract.ticker||official.market_id!=contract.market_id{
+    if !official_identity_matches(contract,official){
         return Err(Error::WrongMarket);
+    }
+    if official.retrieved_at_ns<contract.expiration_ns{
+        return Err(Error::UnknownOfficial);
     }
     if !official.is_authenticated_public_get(){
         return Err(Error::UnknownOfficial);
@@ -365,6 +420,8 @@ pub fn corroborate_primary(
         blocked_reasons:if tier==OutcomeTier::ConflictingOrInvalid{
             vec!["PRIMARY_OFFICIAL_CONFLICT".into()]
         }else{vec![]},
+        provenance:SettlementProvenance::from_contract(contract)
+            .with_official(official).with_primary(source),
         authenticated_primary:tier==OutcomeTier::IndependentCorroborated,
     })
 }
@@ -385,7 +442,8 @@ pub fn assess_provisional(
         blocked_reasons:vec![
             "NOT_FRESH_OFFICIAL_FINAL".into(),
             "BLOCKED_INDEPENDENT_SETTLEMENT".into(),
-        ],authenticated_primary:false,
+        ],provenance:SettlementProvenance::from_contract(contract),
+        authenticated_primary:false,
     })
 }
 pub fn assess_official(
@@ -397,14 +455,16 @@ pub fn assess_official(
         official_source_sha256:None,primary_source_sha256:None,
         blocked_reasons:vec!["BLOCKED_INDEPENDENT_SETTLEMENT".into()],
         authenticated_primary:false,
+        provenance:SettlementProvenance::from_contract(contract),
     };
     match official{
         None=>out.blocked_reasons.push("MISSING_FRESH_OFFICIAL_FINAL".into()),
-        Some(o) if o.ticker!=contract.ticker||o.market_id!=contract.market_id=>{
+        Some(o) if !official_identity_matches(contract,o)=>{
             out.tier=OutcomeTier::ConflictingOrInvalid;
             out.blocked_reasons.push("MARKET_IDENTITY_MISMATCH".into());
         },
         Some(o)=>{
+            out.provenance=out.provenance.with_official(o);
             if !o.is_authenticated_public_get(){
                 out.blocked_reasons.push("UNVERIFIED_LOCAL_OFFICIAL_PAYLOAD".into());
             }else if o.retrieved_at_ns<contract.expiration_ns{
@@ -446,7 +506,8 @@ pub fn modeled_expiry_pnl(
         }
     }
     let mut out=ModeledAccounting{
-        market:contract.ticker.clone(),modeled_fill:true,
+        // No historical order execution evidence exists in this price-only API.
+        market:contract.ticker.clone(),modeled_fill:false,
         entry_price_ticks:price.ticks(),quantity,
         modeled_fee_centicents:fee.map(|f|f.fee_centicents),
         official_result:None,independently_verified:false,
@@ -480,8 +541,10 @@ pub fn modeled_expiry_pnl(
             .ok_or(Error::Overflow)?
     }else{0};
     out.contract_payout_centicents=Some(payout);
-    out.net_modeled_pnl_centicents=Some(modeled.net);
-    out.uncertainty.push("EXECUTION_REMAINS_MODELED".into());
+    // Payout math may be evaluated, but a hypothetical supplied entry price
+    // is NOT a backtested fill; empirical net modeled P&L remains unavailable.
+    let _counterfactual_net=modeled.net;
+    out.uncertainty.push("NO_MODELED_EXECUTION_EVIDENCE".into());
     out.uncertainty.push("BLOCKED_INDEPENDENT_SETTLEMENT".into());
     Ok(out)
 }
@@ -513,7 +576,7 @@ pub fn modeled_expiry_pnl_with_assessment(
 mod tests{
     use super::*;
     fn rule()->ContractDefinition{
-        ContractDefinition{ticker:"KXBTC-TEST".into(),market_id:"MARKET-1".into(),
+        ContractDefinition{ticker:"KXBTC-TEST".into(),market_id:Some("MARKET-1".into()),
             event_id:"EVENT-1".into(),series:"KXBTC15M".into(),
             contract_type:ContractType::BinaryIndexComparison,
             market_open_ns:1,expiration_ns:200_000_000_000,
@@ -627,6 +690,44 @@ mod tests{
             .unwrap();
         assert_eq!(assess_official(&rule(),Some(&fixture)).tier,
             OutcomeTier::UnknownOrPending);
+    }
+    #[test]fn contract_registry_allows_no_unverified_uuid_without_synthesizing_it(){
+        let mut c=rule();
+        c.market_id=None;
+        c.validate().unwrap();
+        let official=phoenix_kalshi_read_only::parse_official_market("KXBTC-TEST",
+            br#"{"market":{"ticker":"KXBTC-TEST","event_ticker":"EVENT-1",
+                "market_type":"binary","status":"finalized","result":"yes"}}"#,
+            250_000_000_000).unwrap();
+        assert_eq!(official.market_id,None);
+        assert!(official_identity_matches(&c,&official));
+        let mut different=c.clone();different.event_id="DIFFERENT".into();
+        assert!(!official_identity_matches(&different,&official));
+    }
+    #[test]fn independent_methodology_document_hash_need_not_equal_contract_hash(){
+        let ticks=(0..120).map(|second_utc|PrimaryTick{
+            second_utc,value_1e8:100+if second_utc>=60{1}else{0}
+        }).collect::<Vec<_>>();
+        let p=PrimaryImport{
+            provider:"CF Benchmarks".into(),benchmark_id:"BRTI".into(),
+            methodology_revision:"reviewed-r1".into(),
+            source_sha256:"c".repeat(64),ticks_sha256:primary_ticks_digest(&ticks).unwrap(),
+            document_sha256:"d".repeat(64),retrieved_at_ns:250_000_000_000,
+            observed_at_ns:200_000_000_000,first_second_utc:0,ticks};
+        assert_eq!(validate_primary_windows(&rule(),&p).unwrap().derived_winner,
+            Side::Yes);
+        let evidence=SettlementProvenance::from_contract(&rule()).with_primary(&p);
+        assert_eq!(evidence.contract_rules_document_sha256,"a".repeat(64));
+        assert_eq!(evidence.primary_methodology_document_sha256,Some("d".repeat(64)));
+    }
+    #[test]fn arbitrary_entry_price_never_proves_a_modeled_fill(){
+        let p=Price::new(5000).unwrap();
+        let fee=fee(FeeRole::Taker);
+        let mut charged=fee.charge(&[(p,1)]).unwrap();
+        charged.evaluated_at_ns=Some(50);
+        let result=modeled_expiry_pnl(&rule(),Side::Yes,p,1,Some(&charged),None).unwrap();
+        assert!(!result.modeled_fill);
+        assert!(result.net_modeled_pnl_centicents.is_none());
     }
     #[test]fn historical_fee_checked_overflow_does_not_wrap(){
         let mut f=fee(FeeRole::Taker);
