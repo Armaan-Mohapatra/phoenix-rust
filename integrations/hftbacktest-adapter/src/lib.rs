@@ -183,7 +183,8 @@ mod tests {
     fn upstream_latency_is_assumption_and_never_negative(){
         assert_eq!(model_constant_latency_ns(40,25).unwrap(),(40,25));
         assert!(model_constant_latency_ns(-1,25).is_err());
-    }    #[test]
+    }
+    #[test]
     fn fractional_quantity_cannot_be_rounded_to_whole_lots(){
         use phoenix_sim::historical::{
             LimitIntent,FractionalBook,FractionalLevel,DepthQuality,LiquidityRole,
