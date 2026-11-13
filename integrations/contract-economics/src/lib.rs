@@ -360,6 +360,26 @@ pub fn corroborate_primary(
         authenticated_primary:tier==OutcomeTier::IndependentCorroborated,
     })
 }
+/// An archived ledger claim or source-derived winner never substitutes for a
+/// fresh official finalized market and independently authenticated reference.
+pub fn assess_provisional(
+    contract:&ContractDefinition,market:&str,winner:Option<Side>,
+    source_sha256:&str,is_archived_paper:bool)->Result<SettlementAssessment,Error>{
+    contract.validate()?;
+    if market!=contract.ticker{return Err(Error::WrongMarket);}
+    if !sha_ok(source_sha256){return Err(Error::InvalidSource);}
+    Ok(SettlementAssessment{
+        tier:if is_archived_paper{OutcomeTier::ArchivedPaper}
+            else{OutcomeTier::SourceDerivedProvisional},
+        market:market.to_owned(),
+        official_winner:None,source_derived_winner:winner.map(as_text),
+        official_source_sha256:None,primary_source_sha256:Some(source_sha256.into()),
+        blocked_reasons:vec![
+            "NOT_FRESH_OFFICIAL_FINAL".into(),
+            "BLOCKED_INDEPENDENT_SETTLEMENT".into(),
+        ],authenticated_primary:false,
+    })
+}
 pub fn assess_official(
     contract:&ContractDefinition,official:Option<&OfficialMarketEvidence>)
     ->SettlementAssessment{
@@ -545,6 +565,35 @@ mod tests{
         assert_eq!(r.validate(),Err(Error::UnsupportedContract));
         let r=rule();let outcome=assess_official(&r,None);
         assert_eq!(outcome.tier,OutcomeTier::UnknownOrPending);
+    }
+    #[test]fn paper_and_source_derived_never_claim_official_evidence(){
+        let p=assess_provisional(&rule(),"KXBTC-TEST",Some(Side::Yes),
+            &"a".repeat(64),true).unwrap();
+        assert_eq!(p.tier,OutcomeTier::ArchivedPaper);
+        assert!(p.official_winner.is_none());
+        assert!(!p.authenticated_primary);
+        let s=assess_provisional(&rule(),"KXBTC-TEST",Some(Side::No),
+            &"b".repeat(64),false).unwrap();
+        assert_eq!(s.tier,OutcomeTier::SourceDerivedProvisional);
+        assert!(s.official_source_sha256.is_none());
+    }
+    #[test]fn level_rounding_and_fill_rounding_are_separate(){
+        let p1=Price::new(4000).unwrap();
+        let p2=Price::new(5000).unwrap();
+        let mut f=fee(FeeRole::Taker);
+        assert!(matches!(f.charge(&[(p1,1),(p2,1)]),Err(Error::InvalidFee)));
+        f.aggregation=FeeAggregation::PerPriceLevel;
+        let actual=f.charge(&[(p1,1),(p2,1)]).unwrap();
+        assert_eq!(actual.fee_centicents%100,0);
+        assert!(actual.fee_centicents>=200);
+    }
+    #[test]fn future_fee_revision_is_not_applied_retroactively(){
+        let mut f=FeeRegistry::default();
+        let mut schedule=fee(FeeRole::Maker);
+        schedule.published_ns=60;schedule.observed_ns=70;
+        f.insert(schedule).unwrap();
+        assert!(matches!(f.resolve("KXBTC15M",FeeRole::Maker,50),
+            Err(Error::FutureRule)));
     }
     #[test]fn primary_window_gap_is_not_interpolated(){
         struct TrustedForFixture;
