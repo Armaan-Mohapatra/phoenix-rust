@@ -59,6 +59,13 @@ pub fn import_local_primary_json(bytes:&[u8])->Result<PrimaryImport,Error>{
     if ticks[0].second_utc!=input.first_second_utc{
         return Err(Error::InvalidPrimary);
     }
+    let latest=ticks.last().ok_or(Error::InvalidPrimary)?.second_utc;
+    let source_complete_after_ns=latest.checked_add(1)
+        .and_then(|v|v.checked_mul(1_000_000_000))
+        .ok_or(Error::InvalidPrimary)?;
+    if input.observed_at_ns<source_complete_after_ns{
+        return Err(Error::InvalidPrimary);
+    }
     let digest=primary_ticks_digest(&ticks)?;
     Ok(PrimaryImport{
         provider:input.provider,benchmark_id:input.benchmark_id,
@@ -78,7 +85,7 @@ mod tests{
     fn lossless_primary_integer_import_requires_exact_epoch_and_hash(){
         let raw=format!(r#"{{"provider":"CF Benchmarks","benchmark_id":"BRTI",
           "methodology_revision":"r1","document_sha256":"{}",
-          "retrieved_at_ns":100,"observed_at_ns":90,
+          "retrieved_at_ns":5000000000,"observed_at_ns":4000000000,
           "first_second_utc":1,"ticks":[
           {{"second_utc":1,"value_1e8":"100000001"}},
           {{"second_utc":2,"value_1e8":"100000002"}}]}}"#,"a".repeat(64));
@@ -91,7 +98,7 @@ mod tests{
     fn duplicates_and_float_encodings_are_rejected(){
         let duplicate=format!(r#"{{"provider":"CF Benchmarks",
             "benchmark_id":"BRTI","methodology_revision":"r1",
-            "document_sha256":"{}","retrieved_at_ns":100,"observed_at_ns":90,
+            "document_sha256":"{}","retrieved_at_ns":5000000000,"observed_at_ns":4000000000,
             "first_second_utc":1,"ticks":[
               {{"second_utc":1,"value_1e8":"1"}},
               {{"second_utc":1,"value_1e8":"1"}}]}}"#,"a".repeat(64));
