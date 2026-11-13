@@ -1,0 +1,25 @@
+name: Integrated sealed Parquet and disk identity recovery
+on:
+  push:
+    branches: [codex/sealed-index-integration-v1]
+    paths: ['integrations/indexed-archive/**','integrations/disk-identity/**','.github/workflows/indexed-archive.yml']
+  pull_request:
+    paths: ['integrations/indexed-archive/**','integrations/disk-identity/**','.github/workflows/indexed-archive.yml']
+permissions:
+  contents: read
+jobs:
+  indexed:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Crash recovery and redb reconciliation
+        run: cargo test --manifest-path integrations/indexed-archive/Cargo.toml --all-targets
+      - name: Existing durable publisher regression
+        run: cargo test --manifest-path integrations/durable-archive/Cargo.toml --all-targets
+      - name: Existing redb regression
+        run: cargo test --manifest-path integrations/disk-identity/Cargo.toml --all-targets
