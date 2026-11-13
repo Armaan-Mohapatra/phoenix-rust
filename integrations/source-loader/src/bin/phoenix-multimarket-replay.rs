@@ -7,7 +7,7 @@ use sha2::{Digest,Sha256};
 use std::{env,fs::{self,File},io::Read,path::PathBuf};
 use zip::ZipArchive;
 const MAX_PLAN:usize=128*1024;
-const MAX_PRIOR:usize=4*1024*1024;
+const MAX_PRIOR:usize=20*1024*1024;
 const MAX_CATALOG:u64=4*1024*1024;
 #[derive(Deserialize)]
 struct Plan{
@@ -36,8 +36,15 @@ fn run()->Result<(),String>{
     let prior:Vec<ReusableMarketCheckpoint>=if args[2]=="-"{
         vec![]
     }else{
-        serde_json::from_slice(&bounded_file(&args[2],MAX_PRIOR)?)
-            .map_err(|e|e.to_string())?
+        let bytes=bounded_file(&args[2],MAX_PRIOR)?;
+        let content:serde_json::Value=serde_json::from_slice(&bytes)
+            .map_err(|e|e.to_string())?;
+        // Accept either an extracted checkpoint vector or the exact JSON
+        // report emitted by this CLI on its previous run.
+        let checkpoints=if content.is_array(){content}
+            else{content.get("next_checkpoints").cloned()
+                .ok_or("PREVIOUS_REPORT_MISSING_NEXT_CHECKPOINTS")?};
+        serde_json::from_value(checkpoints).map_err(|e|e.to_string())?
     };
     let zip_paths=args[3..].iter().map(PathBuf::from).collect::<Vec<_>>();
     let mut zip=ZipArchive::new(
