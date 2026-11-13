@@ -263,7 +263,7 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
         Ok(evidence)=>evidence,
     };
     while next<checkpoint_asof_ns.len(){
-        checkpoints.push(checkpoint(&book,checkpoint_asof_ns[next],&last));
+        checkpoints.push(checkpoint(integrity.forensic_book(),checkpoint_asof_ns[next],&last));
         next+=1;
     }
     if checkpoints.last().map_or(true,|c|c.asof_received_ns!=decision_ns){

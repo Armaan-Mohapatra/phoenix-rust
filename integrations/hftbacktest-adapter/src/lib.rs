@@ -79,6 +79,55 @@ mod enabled {
             exact_parity:matched==phx.matched && ahead==phx.queue_ahead,
         })
     }
+    /// Whole-contract comparison ONLY. Fractional quantities and levels are
+    /// unsupported by this exact adapter and must never be rounded to lots.
+    /// This is a sensitivity comparison, not empirically proven maker fills.
+    pub fn compare_fractional_when_lossless(
+        request:&phoenix_sim::historical::LimitIntent,
+        book:&phoenix_sim::historical::FractionalBook,
+        prints:&[phoenix_sim::historical::ConsumingPrint],
+        deadline_ns:i64,
+    )->Result<QueueComparison,Error>{
+        use phoenix_domain::{Level,FeeRate};
+        use phoenix_sim::historical::{LiquidityRole,DepthQuality};
+        if request.role!=LiquidityRole::Maker||
+            request.market!=book.market||
+            book.quality!=DepthQuality::VerifiedSourceWindow||
+            request.maker_queue_ahead_extra_hundredths!=0||
+            request.quantity_hundredths%100!=0||
+            request.quantity_hundredths/100>(1u64<<53)||
+            book.yes_bids.iter().chain(book.no_bids.iter())
+                .any(|l|l.quantity_hundredths%100!=0||
+                    l.quantity_hundredths/100>(1u64<<53))||
+            prints.iter().any(|p|p.quantity_hundredths%100!=0||
+                p.quantity_hundredths/100>(1u64<<53)){
+            return Err(Error::InvalidQuantity);
+        }
+        let levels=|src:&[phoenix_sim::historical::FractionalLevel]|
+            ->Vec<Level>{src.iter().map(|l|Level{
+                price:l.price,quantity:l.quantity_hundredths/100}).collect()};
+        let legacy_book=Book{market:book.market.clone(),
+            yes_bids:levels(&book.yes_bids),no_bids:levels(&book.no_bids),
+            exchange_ns:book.exchange_ns,received_ns:book.received_ns,
+            session_id:book.session_id.clone(),sequence:0};
+        legacy_book.validate().map_err(|_|Error::InvalidBook)?;
+        let legacy_order=OrderIntent{
+            market:request.market.clone(),side:request.side,
+            quantity:request.quantity_hundredths/100,
+            buy_limit:request.limit_price,
+            signal_received_ns:request.signal_received_ns,
+            decision_ns:request.decision_ns,arrival_ns:request.arrival_ns,
+            max_age_ns:request.max_quote_age_ns,
+            // Queue-only sensitivity; upstream fee/P&L must not be used.
+            fee_rate:FeeRate::ZERO,
+        };
+        let legacy_prints=prints.iter().map(|p|ConsumingTrade{
+            market:p.market.clone(),resting_side:p.resting_side,
+            price:p.price,quantity:p.quantity_hundredths/100,
+            received_ns:p.received_ns}).collect::<Vec<_>>();
+        compare_risk_adverse_queue(&legacy_order,&legacy_book,&legacy_prints,
+            deadline_ns)
+    }
     /// Upstream latency model is only an *assumption*, not an observed Kalshi RTT.
     pub fn model_constant_latency_ns(entry:i64,response:i64)->Result<(i64,i64),Error>{
         if entry<0||response<0{return Err(Error::Replay);}
@@ -135,4 +184,25 @@ mod tests {
         assert_eq!(model_constant_latency_ns(40,25).unwrap(),(40,25));
         assert!(model_constant_latency_ns(-1,25).is_err());
     }
+    #[test]
+    fn fractional_quantity_cannot_be_rounded_to_whole_lots(){
+        use phoenix_sim::historical::{
+            LimitIntent,FractionalBook,FractionalLevel,DepthQuality,LiquidityRole,
+        };
+        let b=FractionalBook{market:"KX-BINARY".into(),
+            received_ns:15,exchange_ns:10,session_id:"synthetic".into(),
+            snapshot_sha256:"a".repeat(64),
+            quality:DepthQuality::VerifiedSourceWindow,
+            yes_bids:vec![FractionalLevel{price:p(4000),quantity_hundredths:500}],
+            no_bids:vec![FractionalLevel{price:p(5500),quantity_hundredths:300}]};
+        let order=LimitIntent{market:"KX-BINARY".into(),
+            strategy_order_id:"x".into(),side:Side::Yes,
+            role:LiquidityRole::Maker,quantity_hundredths:125,
+            limit_price:p(4000),signal_received_ns:10,
+            decision_ns:20,arrival_ns:25,deadline_ns:60,
+            cancelled_at_ns:None,max_quote_age_ns:30,
+            maker_queue_ahead_extra_hundredths:0};
+        assert!(compare_fractional_when_lossless(&order,&b,&[],60).is_err());
+    }
+
 }

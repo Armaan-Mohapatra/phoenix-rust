@@ -8,6 +8,7 @@ edition="2021"
 
 [dependencies]
 phoenix-domain={path="../../crates/domain"}
+phoenix-sim={path="../../crates/sim"}
 phoenix-settlement={path="../../crates/settlement"}
 phoenix-kalshi-read-only={path="../kalshi-read-only"}
 serde={version="1",features=["derive"]}

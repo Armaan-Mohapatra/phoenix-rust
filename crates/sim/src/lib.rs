@@ -1,4 +1,5 @@
 //! Offline orderbook execution hypotheses: every fill is MODELED, never actual.
+pub mod historical;
 use phoenix_domain::{require_asof,Book,Error as DomainError,FeeRate,Money,Price,Side,TimestampNs};
 
 #[derive(Debug,Clone,PartialEq,Eq)]
