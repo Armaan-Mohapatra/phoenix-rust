@@ -367,6 +367,35 @@ mod tests{
         assert!(out.venues.is_empty());
         assert_eq!(out.missing_venues.len(),2);
     }
+    #[test]fn perps_reference_dislocation_and_negative_returns_are_supported(){
+        let mut b=CausalPerpsBuffer::default();
+        b.ingest(obs("A",80,"q",quote())).unwrap();
+        b.ingest(obs("A",81,"t1",PerpsEvent::Trade{
+            price_1e8:110_000_000,quantity_base_1e8:10,
+            aggressor:Some(Aggressor::Sell)})).unwrap();
+        b.ingest(obs("A",82,"t2",PerpsEvent::Trade{
+            price_1e8:100_000_000,quantity_base_1e8:10,
+            aggressor:None})).unwrap();
+        b.ingest(obs("A",83,"r1",PerpsEvent::Reference{
+            mark_1e8:Some(105_000_000),index_1e8:Some(100_000_000)})).unwrap();
+        let joined=b.join(&req()).unwrap();
+        let f=&joined.venues[0];
+        assert!(f.last_pair_return_bps.unwrap()<0);
+        assert_eq!(f.mark_index_dislocation_bps,Some(500));
+        assert_eq!(f.unknown_aggressor_trades,1);
+    }
+    #[test]fn uncertain_clock_does_not_silently_pass_strict_join(){
+        let mut b=CausalPerpsBuffer::default();
+        let mut uncertain=obs("A",90,"x",quote());
+        uncertain.source_clock_uncertain=true;
+        b.ingest(uncertain).unwrap();
+        let strict=b.join(&req()).unwrap();
+        assert!(strict.venues.is_empty());
+        let mut permissive=req();
+        permissive.require_clock_certain=false;
+        let tagged=b.join(&permissive).unwrap();
+        assert!(tagged.venues[0].source_clock_uncertain);
+    }
     #[test]fn bounded_buffers_and_multi_venue_ordering(){
         let mut b=CausalPerpsBuffer::default();
         for i in 1..1100{
