@@ -97,6 +97,62 @@ impl IndexedArchive {
         }
         Ok(r)
     }
+
+    /// Incrementally promote only the newly sealed partition. Cold opens still
+    /// perform full archive and index reconciliation; appends must not perform
+    /// an O(total historical rows) validation on every publication.
+    fn commit_just_sealed(&mut self,id:&str)->Result<(),Error>{
+        if !sha_valid(id){return Err(Error::InvalidManifest);}
+        let path=self.root.join("sealed/manifests").join(format!("{id}.json"));
+        if fs::metadata(&path).map_err(io)?.len()>MAX_MANIFEST_BYTES{
+            return Err(Error::InvalidManifest);
+        }
+        let mut manifest_bytes=Vec::new();
+        File::open(&path).map_err(io)?.take(MAX_MANIFEST_BYTES+1)
+            .read_to_end(&mut manifest_bytes).map_err(io)?;
+        if manifest_bytes.len() as u64>MAX_MANIFEST_BYTES{
+            return Err(Error::InvalidManifest);
+        }
+        let persisted:SealedPartition=serde_json::from_slice(&manifest_bytes)
+            .map_err(|_|Error::InvalidManifest)?;
+        if persisted.partition_id!=id || persisted.parquet_sha256!=id ||
+            persisted.status!="sealed" || persisted.rows==0 ||
+            persisted.rows>256 || persisted.rows!=persisted.events.len(){
+            return Err(Error::InvalidManifest);
+        }
+
+        // The in-memory sealed archive must agree *exactly* with the persisted
+        // manifest, including source scope and ordered event identity list.
+        // The archive's typed readback independently checks parquet and row SHA.
+        let persisted_value=serde_json::to_value(&persisted)
+            .map_err(|_|Error::InvalidManifest)?;
+        let mut memory_matches=None;
+        let mut verified=Vec::<(String,String)>::with_capacity(persisted.rows);
+        self.archive.visit_verified_partition(id,|memory,event,_row|{
+            if memory_matches.is_none(){
+                let value=serde_json::to_value(memory)
+                    .map_err(phoenix_durable_archive::Error::Json)?;
+                memory_matches=Some(value==persisted_value);
+            }
+            verified.push((event.id.clone(),event.row_sha256.clone()));
+            Ok(())
+        }).map_err(archive_error)?;
+        if memory_matches!=Some(true) || verified.len()!=persisted.events.len() ||
+            persisted.events.iter().zip(verified.iter()).any(|(a,(id,digest))|
+                a.id!=*id || a.row_sha256!=*digest){
+            return Err(Error::InvalidManifest);
+        }
+        let events=verified.iter().map(|(id,digest)|(id.as_str(),digest.as_str()))
+            .collect::<Vec<_>>();
+        let outcome=self.index.commit_verified_partition(
+            id,&hash(&manifest_bytes),&events).map_err(index_error)?;
+        self.recovery.sealed+=1;
+        self.recovery.event_references+=events.len();
+        if outcome.already_committed{self.recovery.already_indexed+=1;}
+        else{self.recovery.replayed+=1;}
+        Ok(())
+    }
+
     pub fn publish(&mut self,scope:SourceScope,rows:&[EventRow])
         ->Result<PublishResult,Error>{self.publish_fault(scope,rows,Fault::None)}
     pub fn publish_fault(&mut self,scope:SourceScope,rows:&[EventRow],fault:Fault)
@@ -107,9 +163,11 @@ impl IndexedArchive {
         if fault==Fault::AfterSealedManifest {
             self.poisoned=true;return Err(Error::Interrupted);
         }
-        match self.reconcile(){
-            Ok(summary)=>self.recovery=summary,
-            Err(err)=>{self.poisoned=true;return Err(err);}
+        // Reconcile exactly the newly sealed manifest; reopening still
+        // performs full evidence verification and repairs missing transactions.
+        if let Err(err)=self.commit_just_sealed(result.partition_id.as_deref().unwrap()){
+            self.poisoned=true;
+            return Err(err);
         }
         if fault==Fault::AfterIndexCommit{
             self.poisoned=true;return Err(Error::Interrupted);
@@ -198,6 +256,27 @@ mod tests {
         assert_eq!(b.recovery().already_indexed,4);
         assert_eq!(b.recovery().replayed,0);
     }
+
+    #[test]fn incremental_commit_preserves_new_partition_and_reopen_counts(){
+        let t=TempDir::new().unwrap();
+        let mut a=IndexedArchive::open(root(&t)).unwrap();
+        for n in 0..6u64{
+            let rows=(0..32u64).map(|k|{
+                let seq=n*32+k+1;
+                event(&format!("inc{n}:{k}"),seq)
+            }).collect::<Vec<_>>();
+            assert_eq!(a.publish(scope(),&rows).unwrap().added,32);
+            assert_eq!(a.recovery().sealed,(n+1) as usize);
+            assert_eq!(a.recovery().event_references,((n+1)*32) as usize);
+        }
+        drop(a);
+        let b=IndexedArchive::open(root(&t)).unwrap();
+        assert_eq!(b.recovery().sealed,6);
+        assert_eq!(b.recovery().already_indexed,6);
+        assert_eq!(b.recovery().event_references,192);
+        assert!(b.find("inc5:31").unwrap().is_some());
+    }
+
     #[test]fn unknown_root_and_orphan_index_fail_closed(){
         let t=TempDir::new().unwrap();let path=root(&t);
         fs::create_dir(&path).unwrap();
