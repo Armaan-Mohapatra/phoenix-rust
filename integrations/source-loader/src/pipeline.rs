@@ -1,5 +1,6 @@
 //! Source-origin, bounded chronological research replay. No venue execution.
 use crate::{forensic, replay, CapturedMessage, ChannelRun, Evidence, Initialization, Request};
+use crate::book_integrity::{BookIntegrity,BookEvidence};
 use phoenix_domain::Side;
 use phoenix_kalshi_wire::{ArchivedDecoded, Message};
 use serde::{Deserialize,Serialize};
@@ -76,6 +77,7 @@ pub struct ReplayReport {
     pub invalid_depth_observations:usize,
     pub session_change_observations:usize,
     pub channel_runs:Vec<ChannelRun>,
+    pub book_integrity:Option<BookEvidence>,
     pub checkpoints:Vec<Checkpoint>,
     pub initial_state:String,
     pub missing_evidence:Vec<String>,
@@ -179,6 +181,7 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
     }
     let catalog_sha256=format!("{:x}",Sha256::digest(catalog_bytes));
     let mut book=forensic::Book::new(&req.ticker);
+    let mut integrity=BookIntegrity::new(&req.ticker);
     let mut chain=Sha256::new();
     let mut keyed=BTreeMap::<String,String>::new();
     let mut snapshots=0usize;
@@ -227,6 +230,9 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
             Message::Unhandled(_)=>{excluded+=1;return Ok(());},
         }
         clocks+=usize::from(event.source_clock_ahead);
+        // The evidence overlay reuses the same forensic fractional engine;
+        // it does not certify availability solely from the decoded tape.
+        integrity.observe(event,decoded);
         let applied=match book.apply(event,decoded){
             Ok(())=>true,
             Err(forensic::Error::MissingSnapshot)=>{missing_snap+=1;false},
@@ -271,6 +277,9 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
     if invalid_depth>0{missing_evidence.push("INVALID_DEPTH_OBSERVED".into());}
     missing_evidence.push("NO_INDEPENDENT_SETTLEMENT_EVIDENCE".into());
     missing_evidence.push("NO_VERIFIED_EXCHANGE_EXECUTION".into());
+    let book_evidence=integrity.evidence(&evidence.channel_runs,
+        decision_ns,5_000_000_000,evidence.partition_proofs.len(),
+        Some(&catalog_sha256));
     Ok(ReplayReport{
         schema_version:1,status:if invalid_depth>0{EvidenceClass::Invalid}
             else if missing_snap>0||missing_initial(book.status()){EvidenceClass::Incomplete}
@@ -290,7 +299,7 @@ pub fn run(req:&Request,catalog_bytes:&[u8],decision_ns:i64,
         future_observations_excluded:future,
         missing_snapshot_deltas:missing_snap,invalid_depth_observations:invalid_depth,
         session_change_observations:changed,channel_runs:evidence.channel_runs,
-        checkpoints,initial_state:format!("{:?}",book.status()),missing_evidence,
+        book_integrity:Some(book_evidence),checkpoints,initial_state:format!("{:?}",book.status()),missing_evidence,
         decoded_hash_chain_sha256:format!("{:x}",chain.finalize()),
         independent_settlement_verified:false,venue_execution_verified:false,
     })
@@ -320,7 +329,7 @@ mod tests{
             conflicting_observations:0,malformed_or_excluded_observations:0,
             future_observations_excluded:0,missing_snapshot_deltas:0,
             invalid_depth_observations:0,session_change_observations:0,
-            channel_runs:vec![],checkpoints:vec![fixture],
+            channel_runs:vec![],book_integrity:None,checkpoints:vec![fixture],
             initial_state:"PartialInitialization".into(),missing_evidence:vec![],
             decoded_hash_chain_sha256:"b".repeat(64),
             independent_settlement_verified:false,venue_execution_verified:false,
