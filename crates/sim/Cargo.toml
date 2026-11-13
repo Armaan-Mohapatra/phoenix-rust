@@ -7,3 +7,5 @@ rust-version.workspace=true
 
 [dependencies]
 phoenix-domain={ path="../domain" }
+
+serde={version="1",features=["derive"]}
