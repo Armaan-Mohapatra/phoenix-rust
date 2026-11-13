@@ -47,7 +47,8 @@ pub enum FaultPoint {
     AfterDataSync,BeforeDataRename,AfterDataRename,
     DuringManifestWrite,AfterManifestWriteBeforeSync,
     AfterManifestSync,BeforeManifestRename,AfterManifestRename,
-    DiskFullData,DiskFullManifest,FailDataSync,FailManifestSync,
+    DiskFullData,DiskFullManifest,PermissionDeniedData,
+    ReadOnlyData,DisconnectedData,FailDataSync,FailManifestSync,
     FailDataPublish,FailManifestPublish,
 }
 #[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize,Deserialize)]
