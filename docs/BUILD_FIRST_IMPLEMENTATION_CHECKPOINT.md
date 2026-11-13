@@ -11,7 +11,9 @@ Starting parent: PR #20 consolidated GitHub source commit `066cc4e3b04f1ffafbacd
 3. `integrations/indexed-archive/src/lib.rs`: on newly sealed publication, verify only that partition's on-disk manifest and typed rows before committing identities to redb. Cold reopening continues full sealed/archive index reconciliation. A new cold-restart regression covers six 32-row partitions.
 4. `scripts/validate-phoenix-locally.ps1`: **prepared, not executed** one-shot local Cargo/Clippy/fmt/full-workspace/standalone crate and optional original BTC ZIP replay harness, with bounded Cargo build jobs, isolated outputs, no production-root writes, explicit offline-default dependency handling and machine-readable logs.
 
-These changes target the per-append all-history verification cost. They are **not** a completed scalable archive: the legacy in-memory 250k-ID map and 2,000-partition limit are still present and Windows power-cut durability is unverified. No performance improvement has been measured.
+These changes target the per-append all-history verification cost. The subsequent opt-in external-index refactor adds `Archive::open_external_index` and `publish_with_external_lookup`. `IndexedArchive` now opens the external-index mode and queries recovered redb for existing event-ID digests before sealing a new partition. Ordinary legacy `Archive::open` remains unchanged, and direct unindexed publishing in external mode is rejected. Regression tests for existing IDs, conflicting IDs, and cold reopen were written but **NOT RUN**.
+
+**This is still not a proven bounded-RAM archive.** The legacy memory mode retains the 250k-ID ceiling; the external mode removes its dedicated ID HashMap but still retains a `BTreeMap` of full in-memory manifests, including event identities, and a 2,000-partition limit. Full cold-start verification still reprocesses all sealed rows. Windows power-cut durability and throughput scaling remain unverified. No performance improvement has been measured.
 
 ## Deferred tests and required final gates
 
@@ -22,6 +24,6 @@ These changes target the per-append all-history verification cost. They are **no
 
 ## Next code-only engineering work
 
-Refactor `phoenix-durable-archive` under an explicitly opt-in disk-backed mode so it no longer accumulates the entire event-ID HashMap during open/publish. Preserve the read-only/sealed-manifest authority, fail-closed duplicate conflict detection, and complete verified recovery. Keep the current legacy mode and tests as compatibility references. Continue source-only implementation in a distinct focused change on this branch or a child branch; defer compilation until the final local validation stage.
+Complete scalable **manifest metadata paging/lazy loading** so external-index mode does not retain a `BTreeMap` of all row-level event IDs; address the 2,000-partition cap and implement linear-time cold-start integrity verification or checkpointed verified epochs without weakening fail-closed recovery. Only then can bounded-RAM claims be considered for benchmark validation. Continue other code-only phases from the deferred-validation plan, deferring compilation and runtime execution until the final local validation stage.
 
 No original Phoenix collectors, source files, WAL databases or actual orders were touched.
