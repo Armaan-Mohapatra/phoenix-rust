@@ -18,4 +18,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify raw Parquet manifest SHA, ZIP member bounds and clock skew
-        run: cargo test --manifest-path integrations/source-loader/Cargo.toml --verbose
+        run: cargo test --manifest-path integrations/source-loader/Cargo.toml --all-targets --verbose
