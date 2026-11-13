@@ -1,39 +1,31 @@
-# Phase 6 — precise restart checkpoint
+# Phase 6 — final SOURCE-DEVELOPMENT checkpoint (updated November 13, 2026)
 
-**Status: PARTIAL_CODE_WRITTEN_UNTESTED.** This is NOT a complete/validated Phase 6 sign-off. Do not advance to Phase 7 until the missing integration contracts are resolved. Historical performance remains UNKNOWN.
+**Status: CODE_WRITTEN_UNTESTED — SOURCE CONTRACTS AUTHORED.**
+All tests, Cargo, historical replay, paid CI, and performance benchmarks: **NOT RUN**. No production sources, collector settings, active database or orders modified.
 
-Base: `codex/phase5-1-economics-corrections-v1` at `5ede6f9ffe573166fdbfad003edbc06ae19ae5c8`, draft PR #27.
-Child: `codex/phase6-execution-engine-v1`.
-Last published source/documentation SHA before this checkpoint: `ca065cfb4254c687c3280636d7deeeca66f4faf2`. Re-fetch final branch HEAD/PR after this checkpoint commit.
+Starting SHA: `1d80711e7d59174aa5966de601b9e510f856e486` (initial draft PR #28).
+Parent: `codex/phase5-1-economics-corrections-v1` at `5ede6f9ffe573166fdbfad003edbc06ae19ae5c8`.
+Branch: `codex/phase6-execution-engine-v1`; update and re-fetch PR #28 after this checkpoint is committed.
 
-## Actual changed files
+### Source deliverables
 
-- `crates/sim/src/historical.rs` — new deterministic fixed-point execution module with conservative queue, taker sweeps, modeled order states, partial/nonfills, bounded scenarios, synthetic tests.
-- `crates/sim/src/lib.rs` and `crates/sim/Cargo.toml` — expose the canonical module and add serde schema dependency.
-- `integrations/contract-economics/src/lib.rs` and `integrations/contract-economics/Cargo.toml` — effective-dated fractional fee calculation and strict ticker-to-series fee bridge.
-- `integrations/source-loader/src/lib.rs` and `integrations/source-loader/Cargo.toml` — full immutable fractional depth view and sim dependency.
-- `integrations/source-loader/src/book_integrity.rs` — source-to-execution observation bridge that preserves unverified source status; no replay duplicate.
-- `docs/PHASE6_HISTORICAL_EXECUTION.md` — full contract, authored test inventory and known blockers.
-- This checkpoint.
+1. `crates/sim/src/historical.rs`: receipt-time, immutable exact-fractional limit-order lifecycle, level-by-level taker IOC, conservative maker queue and complete-tape checks, latency/staleness, cancellation/expiry, nonfills, exact money units, bounded scenario API, evidence schema. A new `simulate_source_window` requires a matched provenance/session/window witness rather than a standalone caller-supplied boolean. All outcomes remain MODELLED; no actual fills.
+2. `integrations/hftbacktest-adapter/src/lib.rs`: verified existing *optional* upstream backtest-only adapter path, with a strictly lossless whole-lot compatibility bridge. Crate manifest keeps exact `5f3ec40b2afb764e0fea112f941ed85523ef4e88` pin and Rust 1.91.1 MSRV. No upstream f64 P&L or untested queue parity.
+3. `integrations/contract-economics/src/lib.rs`: historical effective-dated fractional fee bridge, explicit no-unknown-fee-zero rule.
+4. `integrations/source-loader/src/book_integrity.rs` and `src/lib.rs`: existing canonical fractional depth projected into simulator without adding a second book, preserving unverified source classification.
+5. `integrations/source-loader/src/pipeline.rs`: fixed dangling `&book` reference in trailing checkpoint loop; both checkpoint paths now use `integrity.forensic_book()`.
+6. Cargo dependency surfaces for the sim/economics/source-loader integration and `docs/PHASE6_HISTORICAL_EXECUTION.md` complete the contracts.
 
-## New tests: ALL NOT RUN
+### Static review and tests (not run)
 
-Core modeled-execution regression tests (~13 authored): exact fractional taker costs, partial fills and depth exhaustion; maker queue and expired nonfills; missing/duplicate tape, bad fee, book freshness, future signals, pre-arrival cancellation, invalid depth, no marketability, scenario bounds. Fee tests: fractional/whole parity, market/time rejection. Source tests: provisional depth never promoted to verified execution.
+Source inspection confirms module references exist, the hftbacktest path/commit/toolchain are explicit, queue bridge rejects fractional precision loss, fee bridge uses series/role/time keys, future book and session mismatches are rejected in strict source mode, source-loader replay no longer accesses the deleted local `book` variable, all new commit messages include `[skip ci]`.
 
-Static inspection only: confirmed module publication, dependency references, one source L2 owner, historical FeeRegistry bridge, bounded loads, Rust 1.78 style syntax and negative/nonfill fixtures. **No compilation or tests were executed.**
+Synthetic test source exists for taker sweep, partial and nonfills, maker conservative queue, missing maker tape, conflicting/duplicate trades, future signal, stale and missing books, cancel before arrival, invalid depth, bounded scenarios, exact fractional fees, mismatched historical fees, strict witness/session/continuity and whole-contract hft adapter losslessness. All tests are **NOT RUN**.
 
-## Critical open gaps
+### Source/data and compile uncertainties
 
-- Resolve or explicitly retire the pre-existing pinned **hftbacktest backtest-only adapter** and document compatibility. Its actual usable integration path has not been verified.
-- The current source overlay exports `DepthQuality::Unverified` for original captured books; modeled fills are blocked pending independently certified full-channel/snapshot continuity.
-- Historical maker tape completeness needs independent source evidence; the caller-supplied flag does not authenticate source data.
-- Original source schema, real fee revisions and actual Kalshi outcomes/benchmark data remain externally unverified. No real P&L or OOS testing is authorized here.
-- Cross-package Rust compilation and semantics are untested and must be checked only in the separately authorized Phase 15 campaign.
-- Follow-on lifecycle for sell/close, order replace and portfolio accounting remains for Phase 12.
+Original tape authenticity, full subscribed-channel continuity and primary benchmark evidence remain externally blocked; source-derived projections cannot auto-promote to verified depth. Real fee schedules are not bundled. Optional hft comparison may fail compilation on toolchain or upstream API changes; no build has been performed. Historical execution is hypothetical until Phase 15 independently checks real source and conservative assumptions. No empirical P&L or OOS has been measured.
 
-## Exact resume instruction
+### Next exact instruction
 
-1. Verify GitHub draft Phase 6 PR and re-fetch its final HEAD. Check parent PR #27 and `main` remain unchanged.
-2. Continue **Phase 6 only**, from its child branch. Resolve hftbacktest adapter compatibility and other remaining source contracts; do not add an alternate execution simulator.
-3. If reliable source implementation is complete, publish an updated Phase 6 checkpoint, still labeled CODE_WRITTEN_UNTESTED, and only then create the Phase 7 branch.
-4. All commits `[skip ci]`. No Cargo, paid Actions, Codex execution, historical replay, production changes, collectors or exchange orders. Phase 15 needs fresh explicit authorization.
+Re-fetch PR #28 final HEAD and confirm no Actions runs. Create `codex/phase7-multimarket-history-v1` from that exact commit. Implement **Phase 7 only**, build on existing source-loader/manifest/decoder. Publish a new draft PR and new checkpoint before beginning Phase 8. Do not run Phase 15.
