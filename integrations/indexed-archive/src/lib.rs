@@ -27,6 +27,7 @@ pub struct Recovery{
     pub sealed:usize,pub replayed:usize,pub already_indexed:usize,
     pub event_references:usize,pub observed_duplicates:usize,
     pub sample_partition_hashes:Vec<String>,
+    pub sample_source_manifest_hashes:Vec<String>,
 }
 pub struct IndexedArchive{root:PathBuf,archive:Archive,index:Index,poisoned:bool,recovery:Recovery}
 impl IndexedArchive {
@@ -72,6 +73,10 @@ impl IndexedArchive {
             Some(self.recovery.observed_duplicates)
         }else{None};
         for id in &self.recovery.sample_partition_hashes{out.record_evidence(id);}
+        for id in &self.recovery.sample_source_manifest_hashes{
+            out.record_source_manifest(id);
+        }
+        out.inspection_complete=!self.poisoned;
         out.publication_state=if self.poisoned{
             out.manual_intervention_required=true;
             out.errors.push("WRITER_POISONED_REOPEN_REQUIRED".into());
@@ -84,6 +89,21 @@ impl IndexedArchive {
     }
     pub fn recovery_report_json(&self)->Result<String,Error>{
         serde_json::to_string_pretty(&self.recovery_summary()).map_err(io)
+    }
+    /// An open() failure can still be summarized without claiming that the
+    /// unexamined portion of an archive had zero issues.
+    pub fn failed_open_report(error:&Error)->RecoverySummary{
+        let category=match error{
+            Error::UnsafeRoot=>"UNSAFE_ROOT",
+            Error::InvalidManifest=>"CORRUPT_OR_UNSUPPORTED_MANIFEST",
+            Error::OrphanIndex(_)=>"PHANTOM_INDEX_MARKER",
+            Error::Archive(_)=>"ARCHIVE_EVIDENCE_FAILURE",
+            Error::Index(_)=>"INDEX_TRANSACTION_OR_SCHEMA_FAILURE",
+            Error::Io(_)=>"FILESYSTEM_FAILURE",
+            Error::Interrupted=>"INJECTED_INTERRUPTION",
+            Error::Poisoned=>"WRITER_POISONED",
+        };
+        RecoverySummary::empty().blocked(category)
     }
     pub fn find(&self,id:&str)->Result<Option<String>,Error>{self.index.get(id).map_err(index_error)}
     /// Disk-backed, exclusive-cursor partition listing. At most 512 strings
@@ -162,6 +182,11 @@ impl IndexedArchive {
             if recovered.sample_partition_hashes.len()<8{
                 recovered.sample_partition_hashes.push(m.partition_id.clone());
             }
+            if let Some(ref sha)=m.scope.source_manifest_sha256{
+                if recovered.sample_source_manifest_hashes.len()<8{
+                    recovered.sample_source_manifest_hashes.push(sha.clone());
+                }
+            }
         }
         if recovered.sealed!=self.archive.committed_partitions(){
             return Err(Error::InvalidManifest);
@@ -218,6 +243,11 @@ impl IndexedArchive {
         else{self.recovery.replayed+=1;}
         if self.recovery.sample_partition_hashes.len()<8{
             self.recovery.sample_partition_hashes.push(id.to_owned());
+        }
+        if let Some(ref sha)=persisted.scope.source_manifest_sha256{
+            if self.recovery.sample_source_manifest_hashes.len()<8{
+                self.recovery.sample_source_manifest_hashes.push(sha.clone());
+            }
         }
         Ok(())
     }
