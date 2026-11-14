@@ -52,9 +52,9 @@ fn safe_research_root(path:&str)->bool{
         p.contains("windows\\system32")||p.contains("collector"){
         return false;
     }
-    // A relative folder would be ambiguous on the Windows production host.
-    (p.len()>=4&&p.as_bytes()[1]==b':'&&p.as_bytes()[2]==b'\\')||
-        p.starts_with("\\\\") // dedicated UNC research root only with separate approval
+    // Reject relative or UNC paths by default. A dedicated drive-rooted
+    // PhoenixResearch output is required for subsequent archive validation.
+    p.len()>=4 && p.as_bytes()[1]==b':' && p.as_bytes()[2]==b'\\'
 }
 impl Config{
     pub fn validate(&self)->Result<(),Error>{
@@ -225,7 +225,7 @@ impl DiskBudget{
     pub fn reserve(&self,needed:u64)->Result<(),Error>{
         self.validate()?;
         if self.confirmed_used_bytes.checked_add(needed)
-            .is_none_or(|v|v>self.limit_bytes){
+            .map_or(true,|v|v>self.limit_bytes){
             return Err(Error::Backpressure);
         }
         Ok(())
