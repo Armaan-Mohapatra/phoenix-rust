@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "LOCAL_EXECUTION_ENVIRONMENT_PREFLIGHT",
+  "context": "ChatGPT isolated Linux sandbox, not user Windows laptop",
+  "direct_windows_drive_access": false,
+  "checked_paths": [
+    "/mnt/e",
+    "/mnt/c",
+    "/e",
+    "/c",
+    "/mnt/E",
+    "/mnt/C"
+  ],
+  "e_tradingnextdata_accessible": false,
+  "windows_powershell_available": false,
+  "rustc_available": false,
+  "cargo_available": false,
+  "git_available": true,
+  "available_uploaded_source_archives": 10,
+  "uploaded_archive_bytes": 516261941,
+  "machine": {
+    "os": "Linux x86_64",
+    "memory_total_gib_approx": 5.8,
+    "memory_available_gib_approx": 4.5,
+    "free_working_disk_gib_approx": 30,
+    "swap_gib": 0
+  },
+  "actions": {
+    "production_sources_modified": false,
+    "collectors_touched": false,
+    "rust_compiled": false,
+    "cargo_invoked": false,
+    "tests_executed": false,
+    "powershell_executed": false,
+    "backtests_executed": false,
+    "exchanges_contacted": false
+  },
+  "stage_status": {
+    "phase15a": "PARTIAL_SOURCE_REPAIR_AND_BLOCKED_WINDOWS_BUILD",
+    "phase15b": "BLOCKED_TOOLCHAIN_AND_CHECKOUT",
+    "phase15c": "PARTIAL_UPLOADED_BTC_SHA_VERIFICATION_ONLY",
+    "phase15d": "NOT_RUN_NO_AUTHENTIC_STRATEGY_PARITY",
+    "phase15e": "BLOCKED_WINDOWS_MACHINE_UNAVAILABLE",
+    "phase15f": "IN_PROGRESS_GITHUB_EVIDENCE_ONLY"
+  },
+  "result_note": "Source code is reachable only through the authenticated GitHub connector. No runnable source checkout with Cargo and no Windows E drive are mounted. All unavailable stages require separate operator-side execution."
+}

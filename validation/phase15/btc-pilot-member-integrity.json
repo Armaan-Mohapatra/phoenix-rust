@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "market": "KXBTC15M-26OCT241900-00",
+  "source": "user-uploaded LunaDelta_20261025T083801Z market ZIPs, read-only sandbox subset",
+  "source_environment": "Linux sandbox; original Windows E drive not mounted",
+  "catalog_path": "archive/curated/curation_catalog.jsonl",
+  "catalog_expected_sha256": "55f869f1231b67948395ac16a33b50ec774711653da2a3d22c693050eda2db08",
+  "catalog_observed_sha256": "55f869f1231b67948395ac16a33b50ec774711653da2a3d22c693050eda2db08",
+  "catalog_lines": 9243,
+  "selected_members": 24,
+  "members_found": 24,
+  "catalog_member_sha256_match": 24,
+  "missing_members": 0,
+  "sha_mismatches": 0,
+  "selected_uncompressed_bytes": 14459929,
+  "actual_rust_replay": "NOT_RUN",
+  "orderbook_completeness": "BLOCKED",
+  "historical_settlement_authentication": "BLOCKED",
+  "empirical_strategy_results": "NOT_RUN",
+  "source_evidence_tier": "FILE_HASH_CONSISTENCY_ONLY",
+  "members": [
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_0082928055b8bd4b6483.parquet",
+      "sha256": "d847d5e0248ebdfb19d90ea3b1b66b7e815cb965e4a22c2d6e9474f878afbdc7",
+      "bytes": 611640,
+      "source_zip_part": "001",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_021bc8c39d8470405b93.parquet",
+      "sha256": "338acc653da0354c843b9a8a93ac085daa3dd059822e99e82ff5f597a0fe5058",
+      "bytes": 604112,
+      "source_zip_part": "001",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_086cb442914835d41fb5.parquet",
+      "sha256": "b2870694a18a4fad9335e0879e55d29964749a424f1d7697af5f320bb5c69b92",
+      "bytes": 655227,
+      "source_zip_part": "001",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_2e871969bb2e7265d375.parquet",
+      "sha256": "4197779fa0490568c5c931b18c428d761de04d7233c536862e2d6858b83e5243",
+      "bytes": 503210,
+      "source_zip_part": "002",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_3200f9403384cc0ec732.parquet",
+      "sha256": "53f4eefb0bbdb5184be01c6011a9ebd4487c1cf2a0a318c6fe667ccd5d031108",
+      "bytes": 602064,
+      "source_zip_part": "002",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_3f050dc7b8b3efa81a35.parquet",
+      "sha256": "71b2d9fe255b44e7361826f4c2d6e6331699037a675d3b858aa03ea6becd9297",
+      "bytes": 642479,
+      "source_zip_part": "002",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_4e7c065917972da4fded.parquet",
+      "sha256": "05b5e35e163219948505c47fa2f90c21e5fbe5d97d3e35f0efbd096ddaf1a266",
+      "bytes": 622156,
+      "source_zip_part": "002",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_50195db27f9f71efb8c7.parquet",
+      "sha256": "2ac15a449b23b0c9181ab999fe04cb1a5e1ec9d0908fff1c102ca98dfb7a3357",
+      "bytes": 633347,
+      "source_zip_part": "002",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_567769ae86c840e7c1e7.parquet",
+      "sha256": "084542aa5abde1e416985e9ddcb6a7aec714ccff61b849224c5a81175b8dea77",
+      "bytes": 615275,
+      "source_zip_part": "002",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_5cf93c641784b324cafd.parquet",
+      "sha256": "e8588d8347789b4275c96cd0bb0265af91ec09635a45c2f16d39a34546397357",
+      "bytes": 636350,
+      "source_zip_part": "002",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_8b4b89cd2974b6f1d0ef.parquet",
+      "sha256": "03cc1a65b48c6b210de967d653b8ea6def55f5da644b9c3dfa8f91878b77ce68",
+      "bytes": 610157,
+      "source_zip_part": "003",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_8b52cea35450a8a4c277.parquet",
+      "sha256": "7c400fc84a1ba6420b723e94721627ae793c18f16ba9d1bd6b61ca524a7cc7b1",
+      "bytes": 594583,
+      "source_zip_part": "003",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_8ecf301f3bb80ae92358.parquet",
+      "sha256": "86e8cddee8adab1c9cbc4800e198d13c9c0993f800b49ea356ec066dda85948a",
+      "bytes": 568909,
+      "source_zip_part": "003",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_99a77ec35c963d04919a.parquet",
+      "sha256": "e1f952525c232ea1adc383c33f072bcefa7df5c264721dfbe11a6b3e406891e1",
+      "bytes": 589076,
+      "source_zip_part": "003",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_b2c02c60b1476fd3cddd.parquet",
+      "sha256": "b7f1eeecdd5a1bfcf0962913e7f628c4ca02e224deb8c492b7dbb59a7f0ecd98",
+      "bytes": 660554,
+      "source_zip_part": "004",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_bc53be85224c90744f72.parquet",
+      "sha256": "12f4a841a48866423a156b73e7b6fc399cf68c86356667853b51dca5d03dfc53",
+      "bytes": 606081,
+      "source_zip_part": "004",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_c08583a019276477fdf7.parquet",
+      "sha256": "ba76cafd41198d1e6f013aa1004a59a97f7516f726e990fe8843472bd11cd6f6",
+      "bytes": 574287,
+      "source_zip_part": "004",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_c8c6b4d39a1767bdb8cc.parquet",
+      "sha256": "5b8a88d376b0647db4ef9feb2c640115e7842fa24143b0d26a9f9ebac8ebde35",
+      "bytes": 616709,
+      "source_zip_part": "004",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_e1276028e18dd2225abf.parquet",
+      "sha256": "19c251bf4244cf9a33f371d18d4512ef28a11cf45c90c9431e562383a9aaf51a",
+      "bytes": 588222,
+      "source_zip_part": "005",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_e359858531bd2d75e64b.parquet",
+      "sha256": "5ef3d7e1efdea4f3599f2d150e1a10123fc5c0452266de3009b5de2864989a12",
+      "bytes": 618819,
+      "source_zip_part": "005",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_e7960d86e988004522a9.parquet",
+      "sha256": "b622e8d5801ddeaa1372205b6b276f2676d47ddb65c86d4a3b6320c475e30f27",
+      "bytes": 547970,
+      "source_zip_part": "005",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_ee9e40178222ad1d2699.parquet",
+      "sha256": "9415c5bfac5964861e40d0ee94cced22ca8d905e798e1f41e3b6e6c305bc2f09",
+      "bytes": 589065,
+      "source_zip_part": "005",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_f895b98b50aa3980482d.parquet",
+      "sha256": "cad870317812335314b7a2d665a765f31c7f55513b44543d60561ad695001d07",
+      "bytes": 582545,
+      "source_zip_part": "005",
+      "result": "MATCHED_CATALOG_SHA256"
+    },
+    {
+      "path": "archive/curated/raw_events/record_date=2026-10-24/segment_fab3b3bcd860d6f809d5.parquet",
+      "sha256": "d22d29828884995ca960db6537b84115013d1e8d4181e0fe3baffc403390a548",
+      "bytes": 587092,
+      "source_zip_part": "005",
+      "result": "MATCHED_CATALOG_SHA256"
+    }
+  ]
+}

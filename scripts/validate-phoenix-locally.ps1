@@ -13,7 +13,7 @@ param(
     [Parameter(Mandatory=$true)][string]$RepoRoot,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
     [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSha,
-    [string]$ExpectedBranch='codex/phase14-integration-freeze-v1',
+    [string]$ExpectedBranch='codex/phase15-validation-repairs-v1',
     [switch]$ExecuteValidation,
     [switch]$AllowDependencyDownloads,
     [switch]$IncludeOptionalHft,
@@ -38,7 +38,12 @@ if(-not $ExecuteValidation){
     throw 'OPERATOR_AUTHORIZATION_REQUIRED: Script intentionally does nothing without -ExecuteValidation.'
 }
 function FullPath([string]$p){
-    return [System.IO.Path]::GetFullPath($p).TrimEnd([char[]]@('\','/'))
+    $resolved=[System.IO.Path]::GetFullPath($p)
+    $root=[System.IO.Path]::GetPathRoot($resolved)
+    if($resolved.Equals($root,[StringComparison]::OrdinalIgnoreCase)){
+        return $resolved
+    }
+    return $resolved.TrimEnd([char[]]@('\','/'))
 }
 function IsWithin([string]$path,[string]$ancestor){
     return $path.Equals($ancestor,[StringComparison]::OrdinalIgnoreCase) -or
@@ -55,11 +60,15 @@ function Assert-SafeDestination([string]$p){
         }
     }
     # Reject Windows reparse, junction and symlink ancestors before writing.
+    # Newly requested destination often does not yet exist. Traverse all
+    # existing ancestors anyway; a missing leaf must never skip a junction.
     $walk=FullPath $p
-    while($walk -and (Test-Path -LiteralPath $walk)){
-        $info=Get-Item -LiteralPath $walk -Force
-        if(($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
-            throw "REFUSING_REPARSE_ANCESTOR: $walk"
+    while($walk){
+        if(Test-Path -LiteralPath $walk){
+            $info=Get-Item -LiteralPath $walk -Force
+            if(($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                throw "REFUSING_REPARSE_ANCESTOR: $walk"
+            }
         }
         $parent=[IO.Path]::GetDirectoryName($walk)
         if(-not $parent -or $parent -eq $walk){break}
@@ -70,6 +79,10 @@ $repo=FullPath $RepoRoot
 $out=FullPath $OutputDirectory
 Assert-SafeDestination $repo
 Assert-SafeDestination $out
+if($out.Equals([IO.Path]::GetPathRoot($out),
+        [StringComparison]::OrdinalIgnoreCase)){
+    throw 'OUTPUT_MUST_NOT_BE_DRIVE_ROOT'
+}
 if((IsWithin $out $repo) -or (IsWithin $repo $out)){
     throw 'RESEARCH_CHECKOUT_AND_OUTPUT_MUST_BE_DISJOINT'
 }
@@ -79,7 +92,8 @@ if(-not (Test-Path -LiteralPath (Join-Path $repo 'Cargo.toml') -PathType Leaf)){
 $source=$null
 if($HistoricalZipDirectory){
     $source=FullPath $HistoricalZipDirectory
-    if((IsWithin $out $source) -or (IsWithin $repo $source)){
+    if((IsWithin $out $source) -or (IsWithin $source $out) -or
+       (IsWithin $repo $source) -or (IsWithin $source $repo)){
         throw 'RESEARCH_WRITES_MUST_NOT_OVERLAP_HISTORICAL_INPUT'
     }
 }
@@ -100,9 +114,13 @@ if($IncludeMultiMarketReplay){
             throw 'MULTIMARKET_SOURCE_INPUTS_MUST_BE_READ_ONLY'
         }
     }
-    if($MultiMarketPriorReport -ne '-' -and
-        -not (Test-Path -LiteralPath $MultiMarketPriorReport -PathType Leaf)){
-        throw 'MULTIMARKET_PRIOR_REPORT_MISSING'
+    if($MultiMarketPriorReport -ne '-'){
+        if(-not (Test-Path -LiteralPath $MultiMarketPriorReport -PathType Leaf)){
+            throw 'MULTIMARKET_PRIOR_REPORT_MISSING'
+        }
+        if(IsWithin (FullPath $MultiMarketPriorReport) $out){
+            throw 'MULTIMARKET_PRIOR_REPORT_MUST_BE_READ_ONLY'
+        }
     }
 }
 foreach($exe in @('git','rustup','cargo','rustc')){
@@ -252,6 +270,8 @@ try{
         '--all-targets')+$script:offlineArgs+@('--','-D','warnings'))
     Invoke-CargoValidation 'root-test' $CoreToolchain (@('test','--workspace',
         '--all-targets')+$script:offlineArgs)
+    Invoke-CargoValidation 'root-doctests' $CoreToolchain (@('test','--workspace',
+        '--doc')+$script:offlineArgs)
     # Every direct-child standalone manifest is independently checked.
     # No recursive drive/research archive scan is performed.
     $integrations=Get-ChildItem -LiteralPath (Join-Path $checkout 'integrations') -Directory |
@@ -277,12 +297,21 @@ try{
         $tests=@('test','--manifest-path',$manifest,'--all-targets')+$script:offlineArgs
         if($integration.Name -eq 'hftbacktest-adapter'){$tests+=@('--features','upstream-hft')}
         Invoke-CargoValidation ("test-"+$integration.Name) $tc $tests
+        $docs=@('test','--manifest-path',$manifest,'--doc')+$script:offlineArgs
+        if($integration.Name -eq 'hftbacktest-adapter'){$docs+=@('--features','upstream-hft')}
+        Invoke-CargoValidation ("doctests-"+$integration.Name) $tc $docs
     }
     if($IncludeStress){
-        Invoke-CargoValidation 'disk-index-million-ids' $CoreToolchain (@('test',
-            '--manifest-path',(Join-Path $checkout 'integrations/disk-identity/Cargo.toml'),
-            'million_logical_ids_in_bounded_256_id_transactions',
-            '--','--nocapture')+$script:offlineArgs)
+        # This exact source test has #[ignore]. '--offline' is a CARGO
+        # flag and MUST precede '--'. '--ignored' is a TEST HARNESS flag.
+        # Match the unique test name without '--exact' (which would
+        # require the fully qualified 'tests::...' function path).
+        Invoke-CargoValidation 'disk-index-million-ids' $CoreToolchain (
+            @('test','--manifest-path',
+              (Join-Path $checkout 'integrations/disk-identity/Cargo.toml'))+
+            $script:offlineArgs+
+            @('million_logical_ids_in_bounded_256_id_transactions',
+              '--','--ignored','--test-threads=1','--nocapture'))
         Block 'windows-powercut' 'REQUIRES_SEPARATE_ISOLATED_HARDWARE_FAULT_CAMPAIGN'
     }else{
         Block 'million-id-index-stress' 'REQUIRES_IncludeStress'
