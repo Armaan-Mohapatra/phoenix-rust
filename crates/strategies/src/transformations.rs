@@ -8,6 +8,12 @@ use sha2::{Digest,Sha256};
 use std::collections::{BTreeMap,BTreeSet};
 fn sha(s:&[u8])->String{format!("{:x}",Sha256::digest(s))}
 fn digest(s:&str)->bool{s.len()==64&&s.bytes().all(|b|b.is_ascii_hexdigit())}
+/// Invert a binary YES probability exactly. Inverting twice is identity;
+/// price and expected *profit* are not inverted because fees/spread remain.
+pub fn invert_probability(ticks:u16)->Result<u16,Error>{
+    if ticks>10_000{return Err(Error::InvalidTransform);}
+    Ok(10_000-ticks)
+}
 const MAX_VARIANTS_PER_PARENT:usize=32;
 const MAX_GLOBAL:usize=256;
 #[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Serialize,Deserialize)]
@@ -230,6 +236,8 @@ mod tests{
             rationale:"synthetic candidate not validated".into()}
     }
     #[test]fn inversion_and_double_inversion_are_different_proposals(){
+        assert_eq!(invert_probability(8_000).unwrap(),2_000);
+        assert_eq!(invert_probability(invert_probability(8_000).unwrap()).unwrap(),8_000);
         let a=transform(Kind::FullInversion,1);
         let mut b=transform(Kind::FullInversion,1);
         b.parameter_name="second inversion".into();
