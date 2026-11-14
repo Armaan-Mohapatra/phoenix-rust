@@ -344,6 +344,20 @@ mod tests{
         assert_eq!(after.reserved_cash_micro,600_200);
         assert_eq!(recovered.verify_archive().unwrap(),3);
     }
+    #[test]fn ambiguous_durable_publication_latches_until_reopen(){
+        let folder=TempDir::new().unwrap();
+        let path=folder.path().join("paper");
+        let mut journal=Journal::open(&path).unwrap();
+        journal.append(open("A",20_000)).unwrap();
+        journal.publication_uncertain=true; // synthetic fault injection
+        assert!(journal.requires_reopen());
+        assert!(journal.append(buy("A","o")).is_err());
+        assert_eq!(journal.state("A").unwrap().next_seq,1);
+        drop(journal);
+        let mut recovered=Journal::open(&path).unwrap();
+        assert!(!recovered.requires_reopen());
+        recovered.append(buy("A","o")).unwrap();
+    }
     #[test]fn duplicate_sequence_rejected(){
         let t=TempDir::new().unwrap();
         let mut j=Journal::open(t.path().join("paper")).unwrap();
