@@ -1,0 +1,60 @@
+{
+  "status": "PASS",
+  "scope": "User-uploaded ZIP archive bytes in the active Linux sandbox, not the Windows C:/E: volumes",
+  "read_only": true,
+  "method": "SHA256 over entire original uploaded ZIP byte streams in bounded 1MiB chunks; ZIP contents unchanged",
+  "total_files": 10,
+  "total_bytes": 516261941,
+  "files": [
+    {
+      "filename": "LunaDelta_20261025T083801Z_market_data_part001.zip",
+      "bytes": 88810232,
+      "sha256": "fd2cd248906819bc85fd009ab390fe05eb1a273c65ec8af4b475ae446b609cbf"
+    },
+    {
+      "filename": "LunaDelta_20261025T083801Z_market_data_part002.zip",
+      "bytes": 94027722,
+      "sha256": "8e01517a5b1fce734658b7da70a15e256317d1c24b0ae8a75bd753913098877a"
+    },
+    {
+      "filename": "LunaDelta_20261025T083801Z_market_data_part003.zip",
+      "bytes": 93436595,
+      "sha256": "c8286952090af2dbec8cc70fe1c8160fc51fbe38b4ab8c7386418b54bc57af17"
+    },
+    {
+      "filename": "LunaDelta_20261025T083801Z_market_data_part004.zip",
+      "bytes": 93953969,
+      "sha256": "dd7f7617d3318e6ec5272c5eb3f93e0050c53a49cdcb0b6dd6b1c248ff80a34f"
+    },
+    {
+      "filename": "LunaDelta_20261025T083801Z_market_data_part005.zip",
+      "bytes": 94448597,
+      "sha256": "838da36aee3974e323145bdb3ac47a08199f2b65b654c5f848d9e5c26afa7268"
+    },
+    {
+      "filename": "LunaDelta_20261025T083801Z_market_data_part006.zip",
+      "bytes": 12341408,
+      "sha256": "c0d76ebc5c93fb93e2e8c8d7872c5349cdb11a4fe130ede7bfe734c9260d6816"
+    },
+    {
+      "filename": "LunaDelta_20261025T083801Z_research_part001.zip",
+      "bytes": 8671144,
+      "sha256": "78aafd31e7f0b8c1c168aa97a078e19e926b7c10cdf79ab4e7a1fafd68eaa2f9"
+    },
+    {
+      "filename": "LunaDelta_20261025T083801Z_research_part002.zip",
+      "bytes": 18177902,
+      "sha256": "ff43bdff3783a3447dda99e28ca2e7526cea0a90c9ba6f8a720f394655c2f27f"
+    },
+    {
+      "filename": "LunaDelta_20261025T083801Z_research_part003.zip",
+      "bytes": 6170276,
+      "sha256": "7609e6bd1d92fe1c51380f0f688787225e9df3d2ed898bcad3411937a69a6808"
+    },
+    {
+      "filename": "LunaResearch_20261024_163344.zip",
+      "bytes": 6224096,
+      "sha256": "3a4f2d80be17b37574491e2bc725a3895b689208c9cb76ad143033985fc1550e"
+    }
+  ]
+}
