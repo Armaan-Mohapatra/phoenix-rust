@@ -96,7 +96,7 @@ if($IncludeMultiMarketReplay){
         if(-not (Test-Path -LiteralPath $inputPath -PathType Leaf)){
             throw "MULTIMARKET_INPUT_MISSING: $inputPath"
         }
-        if((IsWithin (FullPath $out) (FullPath $inputPath))){
+        if((IsWithin (FullPath $inputPath) $out)){
             throw 'MULTIMARKET_SOURCE_INPUTS_MUST_BE_READ_ONLY'
         }
     }
