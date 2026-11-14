@@ -227,6 +227,115 @@ pub fn propose(parent:&Definition,transforms:&[Transform],budget:&Budget,
     }
     Ok(out)
 }
+/// Apply a bounded subset of candidate transforms to a *hypothetical*
+/// parent decision using only causal, source-tagged observations. Transforms
+/// requiring historic book/fee replays return RequiresExecutionEvidence,
+/// never manufacture prices, fills or outcomes.
+#[derive(Debug,Clone)]
+pub struct CausalFeature{
+    pub name:String,pub value:i64,pub received_ns:i64,pub source_sha256:String,
+}
+#[derive(Debug,Clone,PartialEq,Eq)]
+pub enum AppliedStatus{Kept,Abstained,Transformed,RequiresExecutionEvidence}
+#[derive(Debug,Clone)]
+pub struct AppliedDecision{
+    pub parent_strategy_id:String,pub transformation_sha256:String,
+    pub action:crate::frozen_registry::Action,
+    pub status:AppliedStatus,pub reason:String,
+    pub proposed_quantity_hundredths:Option<u64>,
+    pub verified_venue_execution:bool,
+}
+pub fn apply_transform(t:&Transform,
+    parent:&crate::frozen_registry::DecisionTrace,
+    book:&phoenix_domain::Book,
+    features:&[CausalFeature])->Result<AppliedDecision,Error>{
+    use crate::frozen_registry::Action;
+    use phoenix_domain::Side;
+    t.validate()?;
+    if parent.market!=book.market||parent.decided_at_ns<book.received_ns||
+        features.len()>64||features.iter().any(|f|f.received_ns>
+            parent.decided_at_ns||!digest(&f.source_sha256)){
+        return Err(Error::UntouchedOosRisk);
+    }
+    let key=t.fingerprint()?;
+    let mut result=AppliedDecision{
+        parent_strategy_id:parent.strategy_id.clone(),
+        transformation_sha256:key,action:parent.action.clone(),
+        status:AppliedStatus::Kept,reason:"CAUSAL_PROPOSAL_UNTESTED".into(),
+        proposed_quantity_hundredths:None,verified_venue_execution:false};
+    let feature=|key:&str|features.iter().find(|f|f.name==key)
+        .map(|f|f.value);
+    if parent.action==Action::Abstain{
+        result.status=AppliedStatus::Abstained;
+        result.reason="PARENT_ABSTAINED_NO_FORCED_FILL".into();
+        return Ok(result);
+    }
+    let read=||t.required_feature.as_deref().and_then(feature);
+    match t.kind{
+        Kind::FullInversion|Kind::ConditionalInversion=>{
+            let should=if t.kind==Kind::FullInversion{true}
+                else{read().is_some_and(|v|v>=t.secondary.unwrap_or(0))};
+            if should{
+                if let Action::ProposedBuy{side,..}=parent.action{
+                    let opposite=match side{Side::Yes=>Side::No,Side::No=>Side::Yes};
+                    if let Some(ask)=book.best_ask(opposite){
+                        result.action=Action::ProposedBuy{side:opposite,limit:ask};
+                        result.status=AppliedStatus::Transformed;
+                        result.reason="OPPOSITE_SIDE_AT_ASOF_OBSERVED_ASK".into();
+                    }else{
+                        result.action=Action::Abstain;
+                        result.status=AppliedStatus::Abstained;
+                        result.reason="OPPOSITE_SIDE_ASK_MISSING".into();
+                    }
+                }
+            }
+        },
+        Kind::EntryPriceThreshold=>{
+            if let Action::ProposedBuy{limit,..}=parent.action{
+                if i64::from(limit.ticks())>t.value{
+                    result.action=Action::Abstain;
+                    result.status=AppliedStatus::Abstained;
+                    result.reason="ENTRY_PRICE_CAP".into();
+                }
+            }
+        },
+        Kind::ConfidenceFilter|Kind::DepthFilter|Kind::LiquidityFilter|
+        Kind::ModelMarketDisagreement|Kind::PerpsImbalance|
+        Kind::PerpsDirectional|Kind::PerpsTradeFlow|
+        Kind::KalshiPerpsDivergence=>{
+            if !read().is_some_and(|v|v>=t.value){
+                result.action=Action::Abstain;
+                result.status=AppliedStatus::Abstained;
+                result.reason="MISSING_OR_BELOW_REQUIRED_CAUSAL_FEATURE".into();
+            }
+        },
+        Kind::SpreadFilter|Kind::VolatilityFilter|
+        Kind::MarketRegimeFilter|Kind::TimeToExpiryFilter|
+        Kind::FeeAwareAbstention|Kind::RiskExposureLimit=>{
+            // These need an explicit independent point-in-time measurement;
+            // absent measurement never gets a default zero.
+            let measurement=t.required_feature.as_deref().and_then(feature);
+            if !measurement.is_some_and(|v|v<=t.value){
+                result.action=Action::Abstain;
+                result.status=AppliedStatus::Abstained;
+                result.reason="UNVERIFIED_OR_ABOVE_FILTER_LIMIT".into();
+            }
+        },
+        Kind::PositionSizeVariation=>{
+            result.proposed_quantity_hundredths=Some(
+                u64::try_from(t.value).map_err(|_|Error::InvalidTransform)?);
+            result.status=AppliedStatus::Transformed;
+            result.reason="HYPOTHETICAL_SIZING_ONLY".into();
+        },
+        Kind::EntryTiming|Kind::ExitTiming|Kind::MakerTakerChoice|
+        Kind::LatencyVariation|Kind::StrategyCombination|
+        Kind::WeightedEnsemble=>{
+            result.status=AppliedStatus::RequiresExecutionEvidence;
+            result.reason="REQUIRES_NEW_ASOF_SIMULATION_OR_OTHER_STRATEGY".into();
+        },
+    }
+    Ok(result)
+}
 #[cfg(test)]
 mod tests{
     use super::*;
@@ -253,6 +362,32 @@ mod tests{
         let a=transform(Kind::SpreadFilter,250);
         assert_eq!(a.fingerprint().unwrap(),
             transform(Kind::SpreadFilter,250).fingerprint().unwrap());
+    }
+    #[test]fn unknown_caused_filter_abstains_instead_of_guessing_zero(){
+        use crate::frozen_registry::{DecisionTrace,Action};
+        let t=Transform{required_feature:Some("perps_imbalance".into()),
+            ..transform(Kind::PerpsImbalance,150)};
+        let parent=DecisionTrace{strategy_id:"syn".into(),
+            version_sha256:"a".repeat(64),market:"M".into(),event:"E".into(),
+            decided_at_ns:200,action:Action::ProposedBuy{
+                side:phoenix_domain::Side::Yes,
+                limit:phoenix_domain::Price::new(5500).unwrap()},
+            reason:"synthetic".into(),source_sha256:vec![],
+            historical_evidence:"SYNTHETIC".into(),
+            venue_fill_verified:false};
+        let book=phoenix_domain::Book{market:"M".into(),
+            yes_bids:vec![phoenix_domain::Level{
+                price:phoenix_domain::Price::new(4000).unwrap(),quantity:1}],
+            no_bids:vec![phoenix_domain::Level{
+                price:phoenix_domain::Price::new(4500).unwrap(),quantity:1}],
+            exchange_ns:100,received_ns:150,
+            session_id:"S".into(),sequence:1};
+        let out=apply_transform(&t,&parent,&book,&[]).unwrap();
+        assert_eq!(out.action,Action::Abstain);
+        assert!(!out.verified_venue_execution);
+        let future=[CausalFeature{name:"perps_imbalance".into(),
+            value:300,received_ns:201,source_sha256:"b".repeat(64)}];
+        assert!(apply_transform(&t,&parent,&book,&future).is_err());
     }
     #[test]fn uncontrolled_candidate_budget_is_not_allowed(){
         assert!(Budget{max_total:257,max_per_parent:32,
