@@ -14,7 +14,7 @@ fn valid_hash(s:&str)->bool{
 #[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(rename_all="SCREAMING_SNAKE_CASE")]
 pub enum OrderStatus{Pending,Partial,Filled,Cancelled,Expired,Invalidated}
-#[derive(Debug,Clone,Serialize,Deserialize)]
+#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
 pub struct IntentV2{
     pub order_id:String,pub market:String,pub rules_sha256:String,
     pub strategy_version_sha256:String,pub source_sha256:String,
@@ -24,7 +24,7 @@ pub struct IntentV2{
     pub fee_budget_micro:MicroUsd,
     pub quote_received_ns:i64,pub deadline_ns:i64,
 }
-#[derive(Debug,Clone,Serialize,Deserialize)]
+#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(tag="action",rename_all="snake_case")]
 pub enum ActionV2{
     Submit{intent:IntentV2},
@@ -46,7 +46,7 @@ pub enum ActionV2{
     Invalidate{order_id:String,reason:String},
     NoTrade{reason:String},
 }
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,PartialEq,Eq)]
 pub struct OrderV2{
     pub intent:IntentV2,pub status:OrderStatus,
     pub filled_hundredths:u64,pub reserved_micro:MicroUsd,
@@ -54,12 +54,12 @@ pub struct OrderV2{
     pub seen_fill_ids:BTreeSet<String>,
     pub paid_fees_micro:MicroUsd,pub realized_reduction:bool,
 }
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,PartialEq,Eq)]
 pub struct PositionV2{
     pub market:String,pub rules_sha256:String,pub side:Side,
     pub quantity_hundredths:u64,pub open_cost_micro:MicroUsd,
 }
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,PartialEq,Eq)]
 pub struct PortfolioV2{
     pub initial_cash_micro:MicroUsd,pub available_cash_micro:MicroUsd,
     pub reserved_cash_micro:MicroUsd,pub realized_net_micro:MicroUsd,
