@@ -310,6 +310,39 @@ mod tests{
         budget.usage_manifest_sha256.clear();
         assert!(budget.reserve(512).is_err());
     }
+    #[test]fn mock_transport_rate_limit_backoff_is_bounded_and_not_automatic(){
+        struct FailingTransport{attempts:u32}
+        impl ReadOnlyTransport for FailingTransport{
+            fn poll_raw(&mut self)->Result<Option<RawReadOnlyEnvelope>,String>{
+                self.attempts+=1;
+                Err("SYNTHETIC_RATE_LIMIT".into())
+            }
+        }
+        let config=Config{mode:Mode::IsolatedReadOnly,
+            isolated_network_enabled:true,max_retries:2,
+            base_backoff_ns:100,..Config::default()};
+        let mut o=Orchestrator::new(config).unwrap();
+        let mut t=FailingTransport{attempts:0};
+        assert!(o.poll_once(&mut t,1_000).unwrap().is_none());
+        assert_eq!(t.attempts,1);
+        assert!(matches!(o.poll_once(&mut t,1_050),
+            Err(Error::DisabledTransport)));
+        assert_eq!(t.attempts,1);
+        assert!(o.poll_once(&mut t,1_100).unwrap().is_none());
+        assert_eq!(t.attempts,2);
+        assert!(matches!(o.poll_once(&mut t,1_300),
+            Err(Error::RetryExhausted)));
+        assert_eq!(t.attempts,3);
+    }
+    #[test]fn unsafe_production_output_paths_are_rejected_before_archive_open(){
+        for root in ["E:\\TradingNextData\\research",
+            "E:\\KalshiData\\paper15m_runtime",
+            "C:\\Windows\\System32\\research",
+            "..\\PhoenixResearch","E:\\collector\\research"]{
+            assert!(!safe_research_root(root));
+        }
+        assert!(safe_research_root("E:\\PhoenixResearch\\offline"));
+    }
     #[test]fn checkpoint_recovery_requires_fresh_snapshot(){
         let mut o=Orchestrator::new(Config::default()).unwrap();
         let c=o.checkpoint().unwrap();
