@@ -47,8 +47,11 @@ pub enum Block {
 }
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum Decision {Allow,RequireDepth,Block(Block)}
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+pub enum AccountingUnit {LegacyTenThousandths,MicroUsd}
 pub struct Guard{
     limits:Limits,
+    accounting_unit:AccountingUnit,
     recent:HashMap<String,VecDeque<i64>>,
     identities:BTreeSet<String>,
     last_ns:Option<i64>,tripped_until:Option<i64>,
@@ -56,9 +59,29 @@ pub struct Guard{
 impl Guard {
     pub fn new(limits:Limits)->Result<Self,Block>{
         if !limits.validate(){return Err(Block::InvalidConfiguration);}
-        Ok(Self{limits,recent:HashMap::new(),identities:BTreeSet::new(),
+        Ok(Self{limits,accounting_unit:AccountingUnit::LegacyTenThousandths,
+            recent:HashMap::new(),identities:BTreeSet::new(),
             last_ns:None,tripped_until:None})
     }
+    /// Construct a new isolated guard with ALL monetary limits promoted
+    /// losslessly from legacy 1e-4 USD to microUSD (1e-6 USD). The Intent
+    /// passed to this guard must be denominated in microUSD.
+    pub fn new_micro(mut limits:Limits)->Result<Self,Block>{
+        limits.max_single_order=limits.max_single_order.checked_mul(100)
+            .ok_or(Block::InvalidConfiguration)?;
+        limits.max_market_exposure=limits.max_market_exposure.checked_mul(100)
+            .ok_or(Block::InvalidConfiguration)?;
+        limits.max_portfolio_exposure=limits.max_portfolio_exposure.checked_mul(100)
+            .ok_or(Block::InvalidConfiguration)?;
+        limits.min_quote_depth=limits.min_quote_depth.checked_mul(100)
+            .ok_or(Block::InvalidConfiguration)?;
+        limits.large_order_threshold=limits.large_order_threshold.checked_mul(100)
+            .ok_or(Block::InvalidConfiguration)?;
+        let mut result=Self::new(limits)?;
+        result.accounting_unit=AccountingUnit::MicroUsd;
+        Ok(result)
+    }
+    pub fn accounting_unit(&self)->AccountingUnit{self.accounting_unit}
     pub fn preflight(&mut self,i:&Intent<'_>)->Decision{
         if i.id.is_empty()||i.id.len()>128||i.market.is_empty()||
             i.market.len()>128||i.at_ns<0||i.proposed_notional<=0||
@@ -178,6 +201,17 @@ mod tests{
             Decision::Block(Block::DuplicateIntent));
         assert_eq!(g.preflight(&i("b","BTC",20,5_000)),
             Decision::Block(Block::NonmonotonicTime));
+    }
+    #[test]fn micro_usd_risk_mode_uses_lossless_money_limits(){
+        let mut guard=Guard::new_micro(cfg()).unwrap();
+        assert_eq!(guard.accounting_unit(),AccountingUnit::MicroUsd);
+        let intent=Intent{id:"M",market:"BTC",at_ns:100,
+            proposed_notional:5_000_000,current_market_exposure:0,
+            current_portfolio_exposure:0,quote_received_ns:99,
+            max_quote_age_ns:10};
+        assert_eq!(guard.preflight(&intent),Decision::Allow);
+        assert_eq!(guard.preflight(&Intent{proposed_notional:5_100_001,
+            id:"B",at_ns:101,..intent}),Decision::Block(Block::SingleOrderLimit));
     }
     #[test]fn invalid_configurations_never_start(){
         let mut c=cfg();c.large_burst_count=0;
