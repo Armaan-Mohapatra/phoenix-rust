@@ -33,3 +33,9 @@ Candidate budgets are enforced per parent (max 32), globally (max 256) and per e
 5. The original Python/JSON candidate research archive contains speculative configurations, not verified positive out-of-sample performance; none are promoted.
 
 Next source phase is Phase 12: persistent exact fractional Paper Arena and legacy journal compatibility. All tests remain NOT RUN.
+
+## Causal proposal predicate execution
+
+`apply_transform` adds actual no-lookahead decision predicates over an existing **hypothetical** Phase 9 `DecisionTrace` with a validated as-of `phoenix_domain::Book` and SHA-tagged `CausalFeature` values. Full/conditional inversion replaces the side only using an observed opposite-side **ask**, not an assumed complementary fill; missing conditional data abstains. Entry-price, minimum-quality and maximum-risk/spread/volatility/fee filters abstain on missing measurements, and sizing proposes an integer hundredths-of-contract quantity. Timing, maker/taker, latency and combining/ensembling variants explicitly return `RequiresExecutionEvidence` because transforming a decision without re-running the existing Phase 6 execution and Phase 10 validation engines would otherwise manufacture a result. All emitted outcomes remain research proposals, never venue fills.
+
+Negative fixture tests additionally cover missing Perps feature abstention and future-received Perps data rejection; they were **NOT RUN**.
