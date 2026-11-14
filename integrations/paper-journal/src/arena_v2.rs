@@ -223,6 +223,26 @@ impl PortfolioV2{
                     audit.current_market_micro>audit.current_portfolio_micro{
                     return Err(Error::InvalidEvent);
                 }
+                // Recompute exposure from the actual PRE-DECISION journal
+                // state. A caller cannot forge a smaller exposure to bypass
+                // the modeled market/portfolio cap and survive restart.
+                let market_positions=self.positions.values()
+                    .filter(|p|p.market==intent.market)
+                    .try_fold(0i128,|acc,p|
+                        acc.checked_add(p.open_cost_micro).ok_or(Error::Arithmetic))?;
+                let market_reserved=self.orders.values()
+                    .filter(|o|o.intent.market==intent.market)
+                    .try_fold(0i128,|acc,o|
+                        acc.checked_add(o.reserved_micro).ok_or(Error::Arithmetic))?;
+                let global_reserve=self.reserved_cash_micro;
+                let actual_market=market_positions.checked_add(market_reserved)
+                    .ok_or(Error::Arithmetic)?;
+                let actual_portfolio=self.total_invested_micro()?
+                    .checked_add(global_reserve).ok_or(Error::Arithmetic)?;
+                if audit.current_market_micro!=actual_market||
+                    audit.current_portfolio_micro!=actual_portfolio{
+                    return Err(Error::InvalidEvent);
+                }
                 if audit.outcome_code=="ALLOW"{
                     self.submit(intent.clone(),at_ns)?;
                 }else if audit.outcome_code.starts_with("BLOCK_"){
@@ -581,6 +601,23 @@ mod tests{
         s.apply(&ActionV2::Replace{order_id:"old".into(),
             replacement:intent("new"),reason:"synthetic".into()},110).unwrap();
         assert!(!s.risk_history_complete);
+    }
+    #[test]fn forged_exposure_cannot_bypass_journal_state(){
+        let mut s=PortfolioV2::new(3_000_000).unwrap();
+        s.apply(&ActionV2::Submit{intent:intent("old")},100).unwrap();
+        let now=intent("new");
+        let a=RiskAuditV2{intent_id:now.order_id.clone(),
+            market:now.market.clone(),at_ns:110,
+            proposed_notional_micro:900_300,
+            current_market_micro:0,current_portfolio_micro:0,
+            observed_depth_micro:1_000_000,
+            quote_received_ns:90,max_quote_age_ns:100,
+            guard_configuration_identity:"configured".into(),
+            outcome_code:"ALLOW".into()};
+        let before=s.clone();
+        assert_eq!(s.apply(&ActionV2::RiskAssessed{
+            intent:now,audit:a},110),Err(Error::InvalidEvent));
+        assert_eq!(s,before);
     }
     #[test]fn durable_risk_assessment_is_one_event_and_direct_legacy_submit_is_flagged(){
         let mut s=PortfolioV2::new(2_000_000).unwrap();
