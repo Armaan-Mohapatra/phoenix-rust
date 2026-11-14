@@ -37,7 +37,8 @@ pub struct CycleConfig{
     pub submitted_hundredths:u64,pub latency_ns:i64,
     pub quote_max_age_ns:i64,pub deadline_ns:i64,
     pub maker_extra_queue_hundredths:u64,
-    pub fee_schedule_sha256:String,
+    pub fee_schedule_sha256:String,pub contract_rules_sha256:String,
+    pub role:LiquidityRole,
     pub fee_budget_micro:i128,pub quote_depth_micro:i128,
     pub synthetic_fixture_only:bool,
 }
@@ -77,12 +78,14 @@ pub fn run_cycle(
     historical_fees:&impl HistoricalFeeSource,
     guard:&mut Guard,journal:&mut Journal,
 )->Result<Outcome,Error>{
-    if !matches!(mode,Mode::PaperOnly|Mode::SyntheticFixture)||
+    if !matches!(mode,Mode::PaperOnly|Mode::SyntheticFixture|
+        Mode::FinalizedHistory)||
         config.portfolio.is_empty()||config.order_id.is_empty()||
         config.submitted_hundredths==0||config.latency_ns<0||
         config.quote_max_age_ns<0||config.fee_budget_micro<0||
         config.quote_depth_micro<0||
         !digest(&config.fee_schedule_sha256)||
+        !digest(&config.contract_rules_sha256)||
         context.market!=market.ticker||context.market!=
             strict_source.map_or(context.market.as_str(),|s|s.market.as_str()){
         return Err(Error::InvalidCycle);
@@ -115,7 +118,7 @@ pub fn run_cycle(
     if config.deadline_ns<arrival_ns{return Err(Error::InvalidCycle);}
     let intent=LimitIntent{
         market:context.market.clone(),strategy_order_id:config.order_id.clone(),
-        side,role:LiquidityRole::Taker, // maker requires independent queue tape
+        side,role:config.role, // maker requires independent complete queue tape
         quantity_hundredths:config.submitted_hundredths,
         limit_price:limit,signal_received_ns:context.book.received_ns,
         decision_ns:context.decision_ns,arrival_ns,
@@ -123,12 +126,16 @@ pub fn run_cycle(
         max_quote_age_ns:config.quote_max_age_ns,
         maker_queue_ahead_extra_hundredths:config.maker_extra_queue_hundredths,
     };
+    // Market-manifest SHA is not a contract-rules SHA.
+    let source_book=books.iter().filter(|b|b.market==context.market&&
+        b.received_ns<=arrival_ns).max_by_key(|b|b.received_ns);
+    let source_sha=source_book.map(|x|x.snapshot_sha256.clone())
+        .unwrap_or_default();
     let order=IntentV2{
         order_id:config.order_id.clone(),market:context.market.clone(),
-        rules_sha256:market.fingerprint_sha256.clone(),
+        rules_sha256:config.contract_rules_sha256.clone(),
         strategy_version_sha256:result.strategy_version_sha256.clone(),
-        source_sha256:books.last()
-            .map(|x|x.snapshot_sha256.clone()).unwrap_or_default(),
+        source_sha256:source_sha,
         fee_schedule_sha256:config.fee_schedule_sha256.clone(),
         side:paper_side(side),limit_ticks:limit.ticks(),
         quantity_hundredths:config.submitted_hundredths,
@@ -171,6 +178,19 @@ pub fn run_cycle(
     };
     let fills=modeled_fill_actions(&config.order_id,&modeled)
         .map_err(|_|Error::InvalidExecution)?;
+    let total_fee_micro=modeled.modeled_fees_centicents
+        .checked_mul(100).ok_or(Error::Overflow)?;
+    if total_fee_micro>config.fee_budget_micro||
+        modeled.quote_source_sha256.as_deref()!=Some(source_sha.as_str())||
+        modeled.modeled_fills.iter().any(|f|
+            f.fee_schedule_sha256!=config.fee_schedule_sha256){
+        append(journal,&config.portfolio,arrival_ns,
+            ActionV2::Cancel{order_id:config.order_id.clone(),
+                reason:"MODEL_FEE_OR_SOURCE_MISMATCH".into()})?;
+        result.stage=Stage::SourceBlocked;
+        result.reason="MODEL_FEE_OR_SOURCE_MISMATCH".into();
+        return Ok(result);
+    }
     for fill in fills{
         append(journal,&config.portfolio,arrival_ns,fill)?;
     }
@@ -195,6 +215,7 @@ mod tests{
             quote_max_age_ns:1,deadline_ns:1,
             maker_extra_queue_hundredths:0,
             fee_schedule_sha256:"a".repeat(64),
+            contract_rules_sha256:"b".repeat(64),role:LiquidityRole::Taker,
             fee_budget_micro:100,quote_depth_micro:100,
             synthetic_fixture_only:true};
         assert!(!base(&cfg,&DecisionContext{
