@@ -322,6 +322,10 @@ impl PortfolioV2{
                 self.cancel(order_id,OrderStatus::Expired)?;
             },
             ActionV2::Replace{order_id,replacement,reason}=>{
+                // Historical direct replacements are replayable, but not
+                // reconstructible as guarded decisions. A future guarded
+                // replacement must persist its own RiskAssessed witness.
+                self.risk_history_complete=false;
                 if reason.trim().is_empty()||order_id==&replacement.order_id{
                     return Err(Error::InvalidEvent);
                 }
@@ -532,6 +536,14 @@ mod tests{
         let before=s.available_cash_micro;
         assert_eq!(s.apply(&fill,131),Err(Error::DuplicateOrder));
         assert_eq!(s.available_cash_micro,before);
+    }
+    #[test]fn historical_replacement_blocks_unwitnessed_future_risk_promotion(){
+        let mut s=PortfolioV2::new(3_000_000).unwrap();
+        s.apply(&ActionV2::Submit{intent:intent("old")},100).unwrap();
+        assert!(!s.risk_history_complete);
+        s.apply(&ActionV2::Replace{order_id:"old".into(),
+            replacement:intent("new"),reason:"synthetic".into()},110).unwrap();
+        assert!(!s.risk_history_complete);
     }
     #[test]fn durable_risk_assessment_is_one_event_and_direct_legacy_submit_is_flagged(){
         let mut s=PortfolioV2::new(2_000_000).unwrap();
