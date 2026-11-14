@@ -7,7 +7,9 @@ use std::collections::{BTreeMap,BTreeSet};
 pub type MicroUsd=i128; // 1/1,000,000 US dollar
 pub const WHOLE_CONTRACT_HUNDREDTHS:u64=100;
 pub const PAYOUT_TICKS_MICRO:u16=10_000; // qty(1e-2)*p(1e-4) -> USD(1e-6)
-const MAX_ORDERS:usize=50_000;
+// Same finite portfolio decision budget as existing risk-guard identity cap.
+// The reducer clones proposed state before durable publication.
+const MAX_ORDERS:usize=4_096;
 fn valid_hash(s:&str)->bool{
     s.len()==64&&s.bytes().all(|b|b.is_ascii_hexdigit())
 }
