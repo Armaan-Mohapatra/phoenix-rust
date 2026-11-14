@@ -8,3 +8,7 @@ rust-version.workspace=true
 [dependencies]
 phoenix-domain={ path="../domain" }
 phoenix-research={ path="../research" }
+
+serde={version="1",features=["derive"]}
+serde_json="1"
+sha2="0.10"
