@@ -252,7 +252,8 @@ pub fn apply_transform(t:&Transform,
     use crate::frozen_registry::Action;
     use phoenix_domain::Side;
     t.validate()?;
-    if parent.market!=book.market||parent.decided_at_ns<book.received_ns||
+    if parent.market!=book.market||book.validate().is_err()||
+        parent.decided_at_ns<book.received_ns||
         features.len()>64||features.iter().any(|f|f.received_ns>
             parent.decided_at_ns||!digest(&f.source_sha256)){
         return Err(Error::UntouchedOosRisk);
@@ -273,6 +274,12 @@ pub fn apply_transform(t:&Transform,
     let read=||t.required_feature.as_deref().and_then(feature);
     match t.kind{
         Kind::FullInversion|Kind::ConditionalInversion=>{
+            if t.kind==Kind::ConditionalInversion&&read().is_none(){
+                result.action=Action::Abstain;
+                result.status=AppliedStatus::Abstained;
+                result.reason="CONDITIONAL_FEATURE_MISSING".into();
+                return Ok(result);
+            }
             let should=if t.kind==Kind::FullInversion{true}
                 else{read().is_some_and(|v|v>=t.secondary.unwrap_or(0))};
             if should{
