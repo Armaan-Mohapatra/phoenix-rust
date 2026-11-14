@@ -1,6 +1,7 @@
 //! Public Kalshi market-data GET adapter. No authentication, WebSocket,
 //! order APIs, POST/PUT/DELETE, portfolio data, or trading functionality.
 //! Network is NEVER accessed by unit tests.
+pub mod stream;
 use std::{io::Read,time::{Duration,Instant},sync::{Arc,Mutex}};
 use sha2::{Digest,Sha256};
 
