@@ -448,11 +448,22 @@ pub fn modeled_fill_actions(
         report.filled_hundredths>report.submitted_hundredths{
         return Err(Error::InvalidEvent);
     }
+    if report.filled_hundredths==0{
+        // A legitimately unfilled modeled order has neither monetary cost
+        // nor fee nor a fabricated fill/source SHA.
+        if !report.modeled_fills.is_empty()||
+            report.modeled_cost_micro_usd!=0||
+            report.modeled_fees_centicents!=0{
+            return Err(Error::InvalidEvent);
+        }
+        return Ok(Vec::new());
+    }
     let source=report.quote_source_sha256.as_ref()
         .ok_or(Error::InconsistentSource)?;
     if !valid_hash(source){return Err(Error::InconsistentSource);}
     let mut out=Vec::new();
-    let mut sum=0u64;
+    let mut sum=0u64;let mut total_cost=0i128;
+    let mut total_fee=0i128;
     for (i,f) in report.modeled_fills.iter().enumerate(){
         if f.quantity_hundredths==0||!valid_hash(&f.fee_schedule_sha256){
             return Err(Error::MissingFee);
@@ -464,6 +475,11 @@ pub fn modeled_fill_actions(
             .ok_or(Error::Arithmetic)?{
             return Err(Error::Arithmetic);
         }
+        total_cost=total_cost.checked_add(f.cost_micro_usd)
+            .ok_or(Error::Arithmetic)?;
+        if f.fee_centicents<0{return Err(Error::MissingFee);}
+        total_fee=total_fee.checked_add(f.fee_centicents)
+            .ok_or(Error::Arithmetic)?;
         out.push(ActionV2::Fill{order_id:order_id.into(),
             fill_id:format!("{}:level:{}",order_id,i),
             quantity_hundredths:f.quantity_hundredths,
@@ -472,7 +488,11 @@ pub fn modeled_fill_actions(
             fee_schedule_sha256:f.fee_schedule_sha256.clone(),
             source_sha256:source.clone()});
     }
-    if sum!=report.filled_hundredths{return Err(Error::InvalidQuantity);}
+    if sum!=report.filled_hundredths||
+        total_cost!=report.modeled_cost_micro_usd||
+        total_fee!=report.modeled_fees_centicents{
+        return Err(Error::InvalidQuantity);
+    }
     Ok(out)
 }
 #[cfg(test)]
@@ -498,6 +518,21 @@ mod tests{
             reason:"synthetic test".into()},130).unwrap();
         assert_eq!(s.reserved_cash_micro,0);
         s.conservation_check().unwrap();
+    }
+    #[test]fn modeled_execution_report_zero_fills_never_invents_cost_or_fee(){
+        use phoenix_sim::historical::{ExecutionReport,LiquidityRole,OrderState};
+        let r=ExecutionReport{schema_version:1,market:"M".into(),
+            strategy_order_id:"o".into(),role:LiquidityRole::Taker,
+            state:OrderState::Unfilled,submitted_hundredths:100,
+            filled_hundredths:0,unfilled_hundredths:100,
+            modeled_fills:vec![],modeled_cost_micro_usd:0,
+            modeled_fees_centicents:0,quote_received_ns:None,
+            order_arrival_ns:100,event_deadline_ns:200,
+            quote_source_sha256:None,conservative_queue_ahead_hundredths:None,
+            latency_ns:0,assumptions:vec![],venue_fill_verified:false};
+        assert!(modeled_fill_actions("o",&r).unwrap().is_empty());
+        let mut fake=r;fake.modeled_fees_centicents=1;
+        assert_eq!(modeled_fill_actions("o",&fake),Err(Error::InvalidEvent));
     }
     #[test]fn zero_cash_phantom_duplicate_and_missing_outcome_blocked(){
         let mut s=PortfolioV2::new(100_000).unwrap();
