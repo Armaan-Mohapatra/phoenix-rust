@@ -26,7 +26,7 @@
 | 20 | Risk durability | new `risk_bridge` tampered replay/cooldown/failed append tests and V2 single-event audit | No external panic injection run; demonstrate cold reopen and no duplicate risk |
 | 21 | Mock collector/orchestration | Phase 13 read-only queue/reconnect/partial source and mock rate-limit tests | Network transport disabled by default; no collector launch |
 | 22 | Reporting/provenance | Phase 10–14 net/gross/fee/rejection/pending/version/config SHA and model controls | Missing P&L NULL; no synthetic→authenticated upgrade |
-| 23 | CPU/RAM/disk/throughput | command wall duration captured; resource benchmarks only with `-IncludePerformance` | Peak RAM/CPU/throughput BLOCKED until explicit safe monitor and benchmark design; no invented results |
+| 23 | CPU/RAM/disk/throughput | command durations always logged; `-IncludePerformance` collects system CPU-load/free-RAM/volume-free-space snapshots to `sampled_resources.json` | Snapshots are not per-process peaks; market-event throughput and physical resource limits still require a separately approved bounded benchmark |
 | 24 | Auditable logs | separate command logs + `results.json`, `summary.json`, `resolved_lockfile_sha256.json` | SHA256 per log; maintain FAIL/BLOCKED after abrupt command exception; status never release ready by default |
 
 ## Invocation template — future operator only
