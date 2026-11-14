@@ -6,6 +6,7 @@ use serde::{Deserialize,Serialize};
 use std::collections::{BTreeMap,HashMap,HashSet};
 use std::path::Path;
 pub mod arena_v2;
+pub mod risk_bridge;
 pub type Money=i128;
 
 mod money_as_string {
