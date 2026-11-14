@@ -1,5 +1,6 @@
 //! Compact deterministic synthetic/research performance summaries.
 //! This library never upgrades modeled outcomes into verified real fills.
+pub mod experiment_report;
 use phoenix_pipeline::{Evaluation,Stage};
 use phoenix_research::Split;
 use phoenix_domain::EvidenceTier;
