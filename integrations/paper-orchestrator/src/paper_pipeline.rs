@@ -218,8 +218,28 @@ pub fn run_cycle(
             return Ok(result);
         }
     };
-    let fills=modeled_fill_actions(&config.order_id,&modeled)
-        .map_err(|_|Error::InvalidExecution)?;
+    if modeled.filled_hundredths==0{
+        // Expire an unfilled hypothetical order without requiring the
+        // nonexistent fill/source evidence of a venue execution.
+        modeled_fill_actions(&config.order_id,&modeled)
+            .map_err(|_|Error::InvalidExecution)?;
+        append(journal,&config.portfolio,config.deadline_ns.max(arrival_ns),
+            ActionV2::Expire{order_id:config.order_id.clone()})?;
+        result.stage=Stage::NoFill;
+        result.reason="NO_MODELED_FILL_WITHIN_SOURCE_WINDOW".into();
+        return Ok(result);
+    }
+    let fills=match modeled_fill_actions(&config.order_id,&modeled){
+        Ok(actions)=>actions,
+        Err(_)=>{
+            append(journal,&config.portfolio,arrival_ns,
+                ActionV2::Cancel{order_id:config.order_id.clone(),
+                    reason:"INCONSISTENT_MODELED_FILL_REPORT".into()})?;
+            result.stage=Stage::SourceBlocked;
+            result.reason="INCONSISTENT_MODELED_FILL_REPORT".into();
+            return Ok(result);
+        }
+    };
     let total_fee_micro=modeled.modeled_fees_centicents
         .checked_mul(100).ok_or(Error::Overflow)?;
     if total_fee_micro>config.fee_budget_micro||
