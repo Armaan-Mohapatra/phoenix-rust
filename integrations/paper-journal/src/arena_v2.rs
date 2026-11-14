@@ -52,6 +52,7 @@ pub struct OrderV2{
     pub filled_hundredths:u64,pub reserved_micro:MicroUsd,
     pub remaining_fee_budget_micro:MicroUsd,
     pub seen_fill_ids:BTreeSet<String>,
+    pub paid_fees_micro:MicroUsd,pub realized_reduction:bool,
 }
 #[derive(Debug,Clone)]
 pub struct PositionV2{
@@ -146,7 +147,8 @@ impl PortfolioV2{
         self.orders.insert(i.order_id.clone(),OrderV2{
             remaining_fee_budget_micro:i.fee_budget_micro,intent:i,
             status:OrderStatus::Pending,filled_hundredths:0,
-            reserved_micro:reserve,seen_fill_ids:BTreeSet::new()});
+            reserved_micro:reserve,seen_fill_ids:BTreeSet::new(),
+            paid_fees_micro:0,realized_reduction:false});
         self.pending_settlement_count+=1;Ok(())
     }
     fn cancel(&mut self,id:&str,status:OrderStatus)->Result<(),Error>{
@@ -168,6 +170,14 @@ impl PortfolioV2{
         Ok(())
     }
     pub fn apply(&mut self,action:&ActionV2,at_ns:i64)->Result<(),Error>{
+        // State changes are transactional even in nonjournal test callers.
+        let mut pending=self.clone();
+        pending.apply_inner(action,at_ns)?;
+        pending.conservation_check()?;
+        *self=pending;
+        Ok(())
+    }
+    fn apply_inner(&mut self,action:&ActionV2,at_ns:i64)->Result<(),Error>{
         if at_ns<=0{return Err(Error::InvalidEvent);}
         match action{
             ActionV2::Submit{intent}=>self.submit(intent.clone(),at_ns)?,
@@ -222,6 +232,8 @@ impl PortfolioV2{
                 self.cumulative_fees_micro=self.cumulative_fees_micro
                     .checked_add(*fee_micro).ok_or(Error::Arithmetic)?;
                 o.remaining_fee_budget_micro-=*fee_micro;
+                o.paid_fees_micro=o.paid_fees_micro.checked_add(*fee_micro)
+                    .ok_or(Error::Arithmetic)?;
                 o.filled_hundredths+=*quantity_hundredths;
                 o.status=if o.filled_hundredths==o.intent.quantity_hundredths{
                     OrderStatus::Filled
@@ -291,6 +303,7 @@ impl PortfolioV2{
                     .checked_add(proceeds-share).ok_or(Error::Arithmetic)?;
                 self.cumulative_fees_micro=self.cumulative_fees_micro
                     .checked_add(*exit_fee_micro).ok_or(Error::Arithmetic)?;
+                if let Some(o)=self.orders.get_mut(order_id){o.realized_reduction=true;}
                 p.quantity_hundredths-=*quantity_hundredths;
                 p.open_cost_micro-=share;
                 if p.quantity_hundredths==0{
@@ -334,7 +347,8 @@ impl PortfolioV2{
             ActionV2::Invalidate{order_id,reason}=>{
                 if reason.trim().is_empty(){return Err(Error::InvalidEvent);}
                 let o=self.orders.get_mut(order_id).ok_or(Error::UnknownOrder)?;
-                if self.completed.contains(order_id)||o.status==OrderStatus::Invalidated{
+                if self.completed.contains(order_id)||o.status==OrderStatus::Invalidated||
+                    o.realized_reduction{
                     return Err(Error::InvalidReversal);
                 }
                 let invested=self.positions.remove(order_id)
@@ -349,6 +363,8 @@ impl PortfolioV2{
                     .checked_sub(o.reserved_micro).ok_or(Error::Arithmetic)?;
                 o.reserved_micro=0;o.status=OrderStatus::Invalidated;
                 self.pending_settlement_count-=1;
+                self.cumulative_fees_micro=self.cumulative_fees_micro
+                    .checked_sub(o.paid_fees_micro).ok_or(Error::Arithmetic)?;
                 self.invalidated+=1;
                 self.completed.insert(order_id.clone());
             },
@@ -357,7 +373,7 @@ impl PortfolioV2{
                 self.skipped+=1;
             },
         }
-        self.conservation_check()
+        Ok(())
     }
 }
 /// Pure integration of Phase 6 fixed-point execution evidence with paper
