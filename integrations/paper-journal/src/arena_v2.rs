@@ -24,9 +24,26 @@ pub struct IntentV2{
     pub fee_budget_micro:MicroUsd,
     pub quote_received_ns:i64,pub deadline_ns:i64,
 }
+/// Risk evidence is part of a *single* already-durable journal event.
+/// Exact preflight inputs are serialized to allow deterministic guard replay.
+#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
+pub struct RiskAuditV2{
+    pub intent_id:String,pub market:String,pub at_ns:i64,
+    #[serde(with="super::money_as_string")]
+    pub proposed_notional_micro:MicroUsd,
+    #[serde(with="super::money_as_string")]
+    pub current_market_micro:MicroUsd,
+    #[serde(with="super::money_as_string")]
+    pub current_portfolio_micro:MicroUsd,
+    #[serde(with="super::money_as_string")]
+    pub observed_depth_micro:MicroUsd,
+    pub quote_received_ns:i64,pub max_quote_age_ns:i64,
+    pub guard_configuration_identity:String,pub outcome_code:String,
+}
 #[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(tag="action",rename_all="snake_case")]
 pub enum ActionV2{
+    RiskAssessed{intent:IntentV2,audit:RiskAuditV2},
     Submit{intent:IntentV2},
     Reject{order_id:String,reason:String},
     Fill{order_id:String,fill_id:String,
@@ -70,6 +87,10 @@ pub struct PortfolioV2{
     pub pending_settlement_count:u64,pub modeled_settlements:u64,
     pub invalidated:u64,pub skipped:u64,
     pub source_evidence_authenticated_by_journal:bool,
+    /// V2 legacy direct Submit/Reject are allowed for offline fixtures, but
+    /// cannot be promoted into a restart-safe guarded portfolio.
+    pub risk_history_complete:bool,
+    pub risk_history:Vec<RiskAuditV2>,
 }
 #[derive(Debug,Clone,PartialEq,Eq)]
 pub enum Error{InvalidIntent,InvalidEvent,DuplicateOrder,UnknownOrder,
@@ -84,7 +105,8 @@ impl PortfolioV2{
             orders:BTreeMap::new(),positions:BTreeMap::new(),
             completed:BTreeSet::new(),rejected:BTreeMap::new(),
             pending_settlement_count:0,modeled_settlements:0,
-            invalidated:0,skipped:0,source_evidence_authenticated_by_journal:false})
+            invalidated:0,skipped:0,source_evidence_authenticated_by_journal:false,
+            risk_history_complete:true,risk_history:Vec::new()})
     }
     pub fn unrealized_net_micro(&self)->Option<MicroUsd>{
         // No contemporaneous independently verified liquidation price here.
@@ -96,7 +118,9 @@ impl PortfolioV2{
     }
     pub fn conservation_check(&self)->Result<(),Error>{
         if self.available_cash_micro<0||self.reserved_cash_micro<0||
-            self.orders.len()>MAX_ORDERS{return Err(Error::ConservationFailure);}
+            self.orders.len()>MAX_ORDERS||self.risk_history.len()>4096{
+            return Err(Error::ConservationFailure);
+        }
         let expected=self.orders.values().try_fold(0i128,|total,o|
             total.checked_add(o.reserved_micro).ok_or(Error::Arithmetic))?;
         if expected!=self.reserved_cash_micro{
@@ -180,8 +204,42 @@ impl PortfolioV2{
     fn apply_inner(&mut self,action:&ActionV2,at_ns:i64)->Result<(),Error>{
         if at_ns<=0{return Err(Error::InvalidEvent);}
         match action{
-            ActionV2::Submit{intent}=>self.submit(intent.clone(),at_ns)?,
+            ActionV2::RiskAssessed{intent,audit}=>{
+                if self.risk_history.len()>=4096||
+                    audit.intent_id!=intent.order_id||
+                    audit.market!=intent.market||audit.at_ns!=at_ns||
+                    audit.quote_received_ns!=intent.quote_received_ns||
+                    audit.max_quote_age_ns<0||
+                    audit.observed_depth_micro<0||
+                    audit.guard_configuration_identity.is_empty()||
+                    audit.guard_configuration_identity.len()>512||
+                    audit.outcome_code.len()>128||
+                    audit.outcome_code.is_empty()||
+                    audit.proposed_notional_micro!=Self::accepted(intent,at_ns)?||
+                    audit.current_market_micro<0||
+                    audit.current_portfolio_micro<0||
+                    audit.current_market_micro>audit.current_portfolio_micro{
+                    return Err(Error::InvalidEvent);
+                }
+                if audit.outcome_code=="ALLOW"{
+                    self.submit(intent.clone(),at_ns)?;
+                }else if audit.outcome_code.starts_with("BLOCK_"){
+                    if self.orders.contains_key(&intent.order_id)||
+                        self.rejected.contains_key(&intent.order_id)||
+                        self.completed.contains(&intent.order_id){
+                        return Err(Error::DuplicateOrder);
+                    }
+                    self.rejected.insert(intent.order_id.clone(),
+                        format!("RISK_GUARD_{}",audit.outcome_code));
+                }else{return Err(Error::InvalidEvent);}
+                self.risk_history.push(audit.clone());
+            },
+            ActionV2::Submit{intent}=>{
+                self.risk_history_complete=false;
+                self.submit(intent.clone(),at_ns)?;
+            },
             ActionV2::Reject{order_id,reason}=>{
+                self.risk_history_complete=false;
                 if order_id.is_empty()||reason.trim().is_empty()||
                     self.rejected.contains_key(order_id)||
                     self.orders.contains_key(order_id){
@@ -474,6 +532,22 @@ mod tests{
         let before=s.available_cash_micro;
         assert_eq!(s.apply(&fill,131),Err(Error::DuplicateOrder));
         assert_eq!(s.available_cash_micro,before);
+    }
+    #[test]fn durable_risk_assessment_is_one_event_and_direct_legacy_submit_is_flagged(){
+        let mut s=PortfolioV2::new(2_000_000).unwrap();
+        let i=intent("reviewed");
+        let a=RiskAuditV2{intent_id:i.order_id.clone(),market:i.market.clone(),
+            at_ns:100,proposed_notional_micro:900_300,
+            current_market_micro:0,current_portfolio_micro:0,
+            observed_depth_micro:1_000_000,
+            quote_received_ns:90,max_quote_age_ns:20,
+            guard_configuration_identity:"unit:configured".into(),
+            outcome_code:"ALLOW".into()};
+        s.apply(&ActionV2::RiskAssessed{intent:i,audit:a},100).unwrap();
+        assert_eq!(s.risk_history.len(),1);
+        assert!(s.risk_history_complete);
+        s.apply(&ActionV2::Submit{intent:intent("old")},101).unwrap();
+        assert!(!s.risk_history_complete);
     }
     #[test]fn unknown_settlement_keeps_position_pending_and_exact_cost_basis(){
         let mut s=PortfolioV2::new(2_000_000).unwrap();
