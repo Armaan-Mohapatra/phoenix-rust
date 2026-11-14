@@ -17,6 +17,7 @@ pub struct WireObservation{
     pub connection_id:String,pub subscription_sid:u64,
     pub sequence:u64,pub market:String,pub received_ns:i64,
     pub message_sha256:String,pub classification:Classification,
+    pub raw_sending_ns:i64,pub raw_event_ns:Option<i64>,
     pub reconstructed_state:State,
     pub source_clock_uncertain:bool,
     pub evidence_authenticated:bool,
@@ -159,6 +160,8 @@ impl ReadOnlyStream{
         let item=WireObservation{connection_id:connection.into(),
             subscription_sid:sid,sequence:seq,market,received_ns,
             message_sha256:digest,classification:class,
+            raw_sending_ns:decoded.raw_sending_ns,
+            raw_event_ns:decoded.raw_event_ns,
             reconstructed_state:sub.state,
             source_clock_uncertain:decoded.source_ahead_of_receipt,
             evidence_authenticated:false};
