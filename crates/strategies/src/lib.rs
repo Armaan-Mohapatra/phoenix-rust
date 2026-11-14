@@ -1,6 +1,7 @@
 //! Frozen strategy specifications and offline model-signal selection.
 //! Not a strategy optimizer. Every decision, including abstention, is retained.
 pub mod frozen_registry;
+pub mod transformations;
 use phoenix_domain::{require_asof,Book,FeeRate,Price,Side};
 use phoenix_research::{choose_trade,SelectMode,TradeChoice};
 
