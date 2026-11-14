@@ -443,6 +443,62 @@ mod tests{
             Err(Error::InsufficientFunds));
         assert!(s.positions.is_empty());
     }
+    #[test]fn invalidation_refunds_partial_fill_and_does_not_leave_phantom_fee(){
+        let mut s=PortfolioV2::new(2_000_000).unwrap();
+        s.apply(&ActionV2::Submit{intent:intent("o")},100).unwrap();
+        s.apply(&ActionV2::Fill{order_id:"o".into(),fill_id:"f1".into(),
+            quantity_hundredths:50,price_ticks:5500,fee_micro:100,
+            fee_schedule_sha256:"d".repeat(64),
+            source_sha256:"c".repeat(64)},110).unwrap();
+        assert_eq!(s.cumulative_fees_micro,100);
+        s.apply(&ActionV2::Invalidate{order_id:"o".into(),
+            reason:"source gap".into()},120).unwrap();
+        assert_eq!(s.available_cash_micro,2_000_000);
+        assert_eq!(s.reserved_cash_micro,0);
+        assert_eq!(s.cumulative_fees_micro,0);
+        assert!(s.positions.is_empty());
+        assert_eq!(s.invalidated,1);
+    }
+    #[test]fn replacement_is_atomic_and_duplicate_fills_cannot_spend_twice(){
+        let mut s=PortfolioV2::new(3_000_000).unwrap();
+        s.apply(&ActionV2::Submit{intent:intent("old")},100).unwrap();
+        let replacement=intent("new");
+        s.apply(&ActionV2::Replace{order_id:"old".into(),
+            replacement,reason:"resubmit lower latency".into()},120).unwrap();
+        assert_eq!(s.orders["old"].status,OrderStatus::Cancelled);
+        assert_eq!(s.orders["new"].status,OrderStatus::Pending);
+        let fill=ActionV2::Fill{order_id:"new".into(),fill_id:"f1".into(),
+            quantity_hundredths:50,price_ticks:5500,fee_micro:100,
+            fee_schedule_sha256:"d".repeat(64),source_sha256:"c".repeat(64)};
+        s.apply(&fill,130).unwrap();
+        let before=s.available_cash_micro;
+        assert_eq!(s.apply(&fill,131),Err(Error::DuplicateOrder));
+        assert_eq!(s.available_cash_micro,before);
+    }
+    #[test]fn unknown_settlement_keeps_position_pending_and_exact_cost_basis(){
+        let mut s=PortfolioV2::new(2_000_000).unwrap();
+        s.apply(&ActionV2::Submit{intent:intent("o")},100).unwrap();
+        s.apply(&ActionV2::Fill{order_id:"o".into(),fill_id:"f1".into(),
+            quantity_hundredths:50,price_ticks:5500,fee_micro:100,
+            fee_schedule_sha256:"d".repeat(64),source_sha256:"c".repeat(64)},120).unwrap();
+        assert!(s.apply(&ActionV2::SettleClaim{order_id:"o".into(),
+            winner:Side::Yes,official_response_sha256:"unavailable".into(),
+            rules_sha256:"a".repeat(64)},320).is_err());
+        assert_eq!(s.pending_settlement_count,1);
+        assert!(s.unrealized_net_micro().is_none());
+    }
+    #[test]fn wrong_basis_allocation_rejected_without_mutating_portfolio(){
+        let mut s=PortfolioV2::new(2_000_000).unwrap();
+        s.apply(&ActionV2::Submit{intent:intent("o")},100).unwrap();
+        s.apply(&ActionV2::Fill{order_id:"o".into(),fill_id:"f1".into(),
+            quantity_hundredths:50,price_ticks:5501,fee_micro:101,
+            fee_schedule_sha256:"d".repeat(64),source_sha256:"c".repeat(64)},120).unwrap();
+        let original=s.clone();
+        assert_eq!(s.apply(&ActionV2::Reduce{order_id:"o".into(),
+            quantity_hundredths:1,exit_price_ticks:6000,exit_fee_micro:0,
+            source_sha256:"e".repeat(64)},140),Err(Error::InexactCostBasis));
+        assert_eq!(s,original);
+    }
     #[test]fn settlement_claim_does_not_claim_provider_authentication(){
         let mut s=PortfolioV2::new(2_000_000).unwrap();
         s.apply(&ActionV2::Submit{intent:intent("o")},100).unwrap();
