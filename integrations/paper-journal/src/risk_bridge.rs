@@ -195,6 +195,47 @@ mod tests{
         assert_eq!(journal.state("A").unwrap().arena_v2.as_ref()
             .unwrap().risk_history.len(),2);
     }
+    #[test]fn crash_after_durable_commit_before_in_memory_guard_update_is_replayed(){
+        let folder=TempDir::new().unwrap();
+        let path=folder.path().join("paper");
+        let mut journal=Journal::open(&path).unwrap();
+        journal.append(Event::OpenV2{portfolio:"A".into(),seq:0,
+            at_ns:100,starting_cash_micro:5_000_000}).unwrap();
+        let mut live=Guard::new_micro(limits()).unwrap();
+        preflight_and_append(&mut journal,&mut live,"A",1,101,
+            intent(),1_000_000,100).unwrap();
+        // Simulate process failure: discard stateful guard and journal.
+        drop(live);drop(journal);
+        let restored=Journal::open(&path).unwrap();
+        let new_guard=Guard::new_micro(limits()).unwrap();
+        let recovered=replay_guard_from_journal(&restored,"A",&new_guard).unwrap();
+        assert_eq!(recovered.registered_intents(),1);
+        assert_eq!(restored.state("A").unwrap().next_seq,2);
+    }
+    #[test]fn fabricated_recorded_allow_is_detected_by_replay(){
+        use crate::arena_v2::RiskAuditV2;
+        let folder=TempDir::new().unwrap();
+        let mut journal=Journal::open(folder.path().join("paper")).unwrap();
+        journal.append(Event::OpenV2{portfolio:"A".into(),seq:0,
+            at_ns:100,starting_cash_micro:5_000_000}).unwrap();
+        let guard=Guard::new_micro(limits()).unwrap();
+        let bad=intent();
+        let a=RiskAuditV2{intent_id:bad.order_id.clone(),
+            market:bad.market.clone(),at_ns:101,
+            proposed_notional_micro:500_100,
+            current_market_micro:0,current_portfolio_micro:0,
+            observed_depth_micro:0,
+            quote_received_ns:bad.quote_received_ns,max_quote_age_ns:0,
+            guard_configuration_identity:guard.configuration_identity(),
+            outcome_code:"ALLOW".into()};
+        // The paper reducer cannot authenticate a forged risk decision;
+        // recovery MUST independently replay and reject it.
+        journal.append(Event::ArenaV2{portfolio:"A".into(),seq:1,
+            at_ns:101,action:ActionV2::RiskAssessed{
+                intent:bad,audit:a}}).unwrap();
+        assert!(matches!(replay_guard_from_journal(&journal,"A",&guard),
+            Err(Error::RiskReplayMismatch)));
+    }
     #[test]fn legacy_unit_guard_is_refused(){
         let folder=TempDir::new().unwrap();
         let mut journal=Journal::open(folder.path().join("paper")).unwrap();
