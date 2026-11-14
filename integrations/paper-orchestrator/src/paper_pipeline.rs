@@ -248,12 +248,14 @@ pub fn to_pending_research_sample(
     outcome:&Outcome,portfolio:&str,journal:&Journal,
     event:&str,decision_ns:i64,
     split:phoenix_research::experiments::Split,
+    evidence:phoenix_research::experiments::Evidence,
     requested_hundredths:u64,
 )->Result<phoenix_research::experiments::PositionSample,Error>{
     use phoenix_research::experiments::{
         PositionSample,ExecutionStatus,Evidence};
     if portfolio.is_empty()||event.is_empty()||decision_ns<=0||
         requested_hundredths==0||
+        !matches!(evidence,Evidence::Synthetic|Evidence::SourceProvisional)||
         outcome.market.is_empty()||
         outcome.modeled_quantity_hundredths>requested_hundredths{
         return Err(Error::InvalidCycle);
@@ -291,7 +293,7 @@ pub fn to_pending_research_sample(
     Ok(PositionSample{event:event.into(),market:outcome.market.clone(),
         strategy:outcome.strategy_id.clone(),split,decision_ns,
         outcome_received_ns:None,
-        evidence:Evidence::Synthetic,
+        evidence,
         execution,gross_micro_usd:None,fee_micro_usd:None,
         net_micro_usd:None,capital_micro_usd:capital,
         submitted_hundredths:requested_hundredths,
@@ -314,7 +316,8 @@ mod tests{
             independently_authenticated_source:false,
             actual_venue_fill_verified:false,actual_order_submitted:false};
         let row=to_pending_research_sample(&outcome,"P",&j,"E",
-            150,Split::Validation,100).unwrap();
+            150,Split::Validation,
+            phoenix_research::experiments::Evidence::Synthetic,100).unwrap();
         assert_eq!(row.execution,ExecutionStatus::Abstain);
         assert_eq!(row.net_micro_usd,None);
         assert!(!row.allowed_for_estimation);
