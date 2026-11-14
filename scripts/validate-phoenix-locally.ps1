@@ -213,7 +213,7 @@ function Logged([string]$Task,[string]$Exe,[string[]]$CommandArgs,[string]$Cwd){
         }
     }
 }
-function Cargo([string]$Task,[string]$Toolchain,[string[]]$CommandArgs){
+function Invoke-CargoValidation([string]$Task,[string]$Toolchain,[string[]]$CommandArgs){
     Logged $Task 'cargo' (@("+$Toolchain")+$CommandArgs) $checkout
 }
 $reportFile=Join-Path $logs 'results.json'
@@ -245,12 +245,12 @@ try{
     Logged 'core-rustc-version' 'rustup' @('run',$CoreToolchain,
         'rustc','--version','--verbose') $checkout
     $root=(Join-Path $checkout 'Cargo.toml')
-    Cargo 'root-metadata' $CoreToolchain (@('metadata',
+    Invoke-CargoValidation 'root-metadata' $CoreToolchain (@('metadata',
         '--no-deps','--format-version','1')+$script:offlineArgs)
-    Cargo 'root-format' $CoreToolchain @('fmt','--all','--','--check')
-    Cargo 'root-clippy' $CoreToolchain (@('clippy','--workspace',
+    Invoke-CargoValidation 'root-format' $CoreToolchain @('fmt','--all','--','--check')
+    Invoke-CargoValidation 'root-clippy' $CoreToolchain (@('clippy','--workspace',
         '--all-targets')+$script:offlineArgs+@('--','-D','warnings'))
-    Cargo 'root-test' $CoreToolchain (@('test','--workspace',
+    Invoke-CargoValidation 'root-test' $CoreToolchain (@('test','--workspace',
         '--all-targets')+$script:offlineArgs)
     # Every direct-child standalone manifest is independently checked.
     # No recursive drive/research archive scan is performed.
@@ -267,19 +267,19 @@ try{
             $tc=$HftToolchain
             Logged 'hft-rustc-version' 'rustup' @('run',$tc,'rustc','--version') $checkout
         }else{$tc=$CoreToolchain}
-        Cargo ("metadata-"+$integration.Name) $tc (@('metadata','--no-deps',
+        Invoke-CargoValidation ("metadata-"+$integration.Name) $tc (@('metadata','--no-deps',
             '--format-version','1','--manifest-path',$manifest)+$script:offlineArgs)
-        Cargo ("fmt-"+$integration.Name) $tc @('fmt','--manifest-path',$manifest,
+        Invoke-CargoValidation ("fmt-"+$integration.Name) $tc @('fmt','--manifest-path',$manifest,
             '--','--check')
         $args=@('clippy','--manifest-path',$manifest,'--all-targets')+$script:offlineArgs
         if($integration.Name -eq 'hftbacktest-adapter'){$args+=@('--features','upstream-hft')}
-        Cargo ("clippy-"+$integration.Name) $tc ($args+@('--','-D','warnings'))
+        Invoke-CargoValidation ("clippy-"+$integration.Name) $tc ($args+@('--','-D','warnings'))
         $tests=@('test','--manifest-path',$manifest,'--all-targets')+$script:offlineArgs
         if($integration.Name -eq 'hftbacktest-adapter'){$tests+=@('--features','upstream-hft')}
-        Cargo ("test-"+$integration.Name) $tc $tests
+        Invoke-CargoValidation ("test-"+$integration.Name) $tc $tests
     }
     if($IncludeStress){
-        Cargo 'disk-index-million-ids' $CoreToolchain (@('test',
+        Invoke-CargoValidation 'disk-index-million-ids' $CoreToolchain (@('test',
             '--manifest-path',(Join-Path $checkout 'integrations/disk-identity/Cargo.toml'),
             'million_logical_ids_in_bounded_256_id_transactions',
             '--','--nocapture')+$script:offlineArgs)
@@ -305,7 +305,7 @@ try{
     # explicit bounded ZIP files. It is never automatically triggered.
     if($IncludeMultiMarketReplay){
         $multi=Join-Path $checkout 'integrations/source-loader/Cargo.toml'
-        Cargo 'multimarket-historical' $CoreToolchain (
+        Invoke-CargoValidation 'multimarket-historical' $CoreToolchain (
             @('run','--manifest-path',$multi,'--bin',
               'phoenix-multimarket-replay')+
             $script:offlineArgs+
