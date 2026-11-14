@@ -4,7 +4,7 @@
 
 **Parent:** Phase 12 draft PR #34 `codex/phase12-paper-arena-v1` at `6ccd492f6e79a7c32c28e6678fe3a6e9787668ef`.
 **Child:** `codex/phase13-collector-orchestration-v1`.
-**Pre-checkpoint verified documentation/source commit:** `08e19d94a6bb76fed0ae3a538d9174eb3538f07a`. The exact child HEAD must be independently re-fetched after this checkpoint and draft PR are published.
+**Most recent source/documentation commit before this refreshed checkpoint:** `236df663446dc505312d5609eeb6c17cef99faff`. The exact child HEAD must be independently re-fetched after this checkpoint and draft PR are published.
 
 ## Actual changed files
 
@@ -13,7 +13,7 @@
 - `integrations/paper-orchestrator/Cargo.toml` (new standalone inert, no production process integration).
 - `integrations/paper-orchestrator/src/lib.rs` (new): offline default modes, disabled opt-in transport, mock poll, bounded retries/backoff, source health, research-root/disk budget guard, read-only source archive adapter, checkpoint requiring resnapshot, optional finalized Perps import.
 - `integrations/paper-orchestrator/src/perps_service.rs` (new): Phase 8 exact schema/SHA Perps normalizer and causal buffer/join with bounded history and checkpoint.
-- `integrations/paper-orchestrator/src/paper_pipeline.rs` (new): Phase 9 frozen decision and Phase 7/8 market/Perps source SHA checks to existing Phase 12 risk/paper-journal and existing Phase 6 modeled execution; no venue order route.
+- `integrations/paper-orchestrator/src/paper_pipeline.rs` (new): Phase 9 frozen decision and Phase 7/8 market/Perps source SHA checks to existing Phase 12 risk/paper-journal and existing Phase 6 modeled execution; also includes direct Phase 10 source-tier-preserving pending/no-fill research report adapter that never invents net P&L; no venue order route.
 - `integrations/risk-guard/src/lib.rs`: stabilize existing overflow-safe Option guards for workspace Rust MSRV without removing prior limit semantics.
 - `docs/PHASE13_PAPER_ORCHESTRATION.md` and this checkpoint.
 
@@ -23,7 +23,7 @@ Checked existing original Kalshi decoder reuse, read-only public GET rate limite
 
 ## Tests authored — all NOT RUN
 
-Snapshot/duplicate, source gaps and recovery, shutdown/backpressure, mock network disabled by default, backoff/finite retry exhaustion, source root protection, disk budget, restart checkpoint and no exchange route, Perps missing/restart hash mismatch, hypothetical one-cycle safety. All earlier source/ledger regression tests remain NOT RUN.
+Snapshot/duplicate, source gaps and recovery, shutdown/backpressure, mock network disabled by default, backoff/finite retry exhaustion, source root protection, disk budget, restart checkpoint and no exchange route, Perps missing/restart hash mismatch, hypothetical one-cycle safety, and source-tier-preserving abstention research-report mapping. All earlier source/ledger regression tests remain NOT RUN.
 
 ## Unverified or partial integration contracts
 
