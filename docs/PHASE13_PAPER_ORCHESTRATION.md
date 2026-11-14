@@ -54,3 +54,9 @@ Source tests: mock snapshot/duplicate, gap/reconnect/resnapshot, backpressure, s
 7. `RiskGuard::new_micro` preserves the old 1e-4 USD API and converts configured limits using checked ×100. Phase 13 additionally replaces legacy `Option::is_none_or` uses with stable `map_or` to avoid known workspace MSRV syntax mismatch; this is still uncompiled.
 
 **Handoff: stop after Phase 13.** The next separately authorized source-development step is Phase 14 — final integration/reporting/security review and feature freeze — from the **independently verified final Phase 13 PR HEAD**. Phase 15 compilation/replay/testing requires separate authorization and must not be performed as part of this batch.
+
+## Phase 10 research-report integration amendment
+
+The one-cycle paper pipeline additionally exposes `to_pending_research_sample`: an explicit adapter from a Phase 12 journal-confirmed paper outcome into the **existing** Phase 10 `PositionSample` type. It distinguishes abstain, risk/source rejected, no-fill, fractional partial and complete *modeled* positions, and reads exact invested micro-USD basis only from the durable journal's V2 position state. Historical fees, pending settlement and net/gross realized P&L remain **NULL** rather than fabricated. Only `Synthetic` or `SourceProvisional` evidence labels are accepted; it rejects caller attempts to claim independent authentication or official final evidence through this API. A synthetic no-trade report regression was authored **NOT RUN**.
+
+This gives the orchestration source an explicit reporting handoff without coupling it to a second statistical calculation engine.
