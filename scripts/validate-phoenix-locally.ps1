@@ -129,6 +129,7 @@ New-Item -ItemType Directory -Path $logs -ErrorAction Stop | Out-Null
 $checkout=Join-Path $logs 'isolated-checkout'
 $target=Join-Path $logs 'target'
 $script:records=New-Object 'System.Collections.Generic.List[object]'
+$script:resourceSnapshots=New-Object 'System.Collections.Generic.List[object]'
 $script:sequence=0
 $script:failed=$false
 $script:continueFailures=[bool]$ContinueAfterFailure
@@ -162,6 +163,29 @@ function Check-TargetBudget(){
         throw 'LOCAL_BUILD_TARGET_BUDGET_EXCEEDED'
     }
 }
+function Sample-Resources([string]$Task,[string]$Moment){
+    # Low-rate system snapshots, NOT per-process peak usage. Optional only.
+    if(-not $IncludePerformance){return}
+    try{
+        $os=Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+        $cpu=@(Get-CimInstance -ClassName Win32_Processor -ErrorAction Stop)
+        $driveName=[IO.Path]::GetPathRoot($logs).Substring(0,1)
+        $disk=Get-PSDrive -Name $driveName -ErrorAction Stop
+        $load=($cpu | Measure-Object -Property LoadPercentage -Average).Average
+        $script:resourceSnapshots.Add([pscustomobject]@{
+            task=$Task;sample=$Moment;observed_utc=[DateTime]::UtcNow.ToString('o');
+            system_cpu_load_percent=$load;
+            available_ram_mib=([double]$os.FreePhysicalMemory/1024.0);
+            validation_volume_free_bytes=$disk.Free;
+            note='SYSTEM_SNAPSHOT_NOT_PEAK_OR_PER_PROCESS'
+        })
+    }catch{
+        $script:resourceSnapshots.Add([pscustomobject]@{
+            task=$Task;sample=$Moment;error='RESOURCE_SAMPLE_UNAVAILABLE';
+            note='NO_RESOURCE_CLAIM'
+        })
+    }
+}
 function Logged([string]$Task,[string]$Exe,[string[]]$CommandArgs,[string]$Cwd){
     Check-TargetBudget
     $script:sequence++
@@ -169,6 +193,7 @@ function Logged([string]$Task,[string]$Exe,[string[]]$CommandArgs,[string]$Cwd){
         ($Task -replace '[^a-zA-Z0-9_-]','_'))
     $timer=[Diagnostics.Stopwatch]::StartNew()
     $exitCode=999
+    Sample-Resources $Task 'before'
     Push-Location -LiteralPath $Cwd
     try{
         & $Exe @CommandArgs *> $log
@@ -179,6 +204,7 @@ function Logged([string]$Task,[string]$Exe,[string[]]$CommandArgs,[string]$Cwd){
         Pop-Location
         $timer.Stop()
     }
+    Sample-Resources $Task 'after'
     Add-Record $Task $(if($exitCode -eq 0){'PASS'}else{'FAIL'}) '' $exitCode $log $timer.Elapsed.TotalSeconds
     if($exitCode -ne 0){
         $script:failed=$true
@@ -302,7 +328,7 @@ try{
     if($IncludePerformance){
         # Timings for executed validations are in results.json. CPU/RAM and
         # throughput must be separately measured, not inferred from elapsed.
-        Block 'cpu-ram-throughput' 'OS_MONITOR_AND_BOUNDED_BENCHMARK_SPEC_REQUIRED'
+        Block 'cpu-ram-throughput' 'SYSTEM_CPU_RAM_DISK_SNAPSHOTS_RECORDED_NOT_PEAK_OR_MARKET_THROUGHPUT'
     }else{Block 'cpu-ram-throughput' 'REQUIRES_IncludePerformance'}
 }finally{
     $script:records | ConvertTo-Json -Depth 6 |
@@ -321,6 +347,8 @@ try{
     }
     $lockRecords | ConvertTo-Json -Depth 4 |
         Set-Content -LiteralPath (Join-Path $logs 'resolved_lockfile_sha256.json') -Encoding UTF8
+    $script:resourceSnapshots | ConvertTo-Json -Depth 5 |
+        Set-Content -LiteralPath (Join-Path $logs 'sampled_resources.json') -Encoding UTF8
     Remove-Item Env:RUSTUP_TOOLCHAIN -ErrorAction SilentlyContinue
     [pscustomobject]@{
         exact_sha=$ExpectedSha;
