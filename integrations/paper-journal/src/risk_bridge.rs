@@ -237,6 +237,29 @@ mod tests{
         assert!(matches!(replay_guard_from_journal(&journal,"A",&guard),
             Err(Error::RiskReplayMismatch)));
     }
+    #[test]fn independent_portfolios_rebuild_risk_without_identity_contamination(){
+        let folder=TempDir::new().unwrap();
+        let mut journal=Journal::open(folder.path().join("paper")).unwrap();
+        journal.append(Event::OpenV2{portfolio:"A".into(),seq:0,
+            at_ns:100,starting_cash_micro:5_000_000}).unwrap();
+        journal.append(Event::OpenV2{portfolio:"B".into(),seq:0,
+            at_ns:100,starting_cash_micro:5_000_000}).unwrap();
+        let mut same_guard=Guard::new_micro(limits()).unwrap();
+        preflight_and_append(&mut journal,&mut same_guard,"A",1,
+            101,intent(),1_000_000,100).unwrap();
+        // Same order identity is valid independently in portfolio B.
+        let other=preflight_and_append(&mut journal,&mut same_guard,"B",1,
+            101,intent(),1_000_000,100).unwrap();
+        assert_eq!(other,Outcome::Accepted);
+        assert_eq!(journal.state("A").unwrap().arena_v2.as_ref()
+            .unwrap().risk_history.len(),1);
+        assert_eq!(journal.state("B").unwrap().arena_v2.as_ref()
+            .unwrap().risk_history.len(),1);
+        let a=replay_guard_from_journal(&journal,"A",&same_guard).unwrap();
+        let b=replay_guard_from_journal(&journal,"B",&same_guard).unwrap();
+        assert_eq!(a.registered_intents(),1);
+        assert_eq!(b.registered_intents(),1);
+    }
     #[test]fn legacy_unit_guard_is_refused(){
         let folder=TempDir::new().unwrap();
         let mut journal=Journal::open(folder.path().join("paper")).unwrap();
