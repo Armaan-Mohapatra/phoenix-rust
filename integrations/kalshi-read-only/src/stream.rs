@@ -70,7 +70,10 @@ impl ReadOnlyStream{
     pub fn observe_reconnect(&mut self,connection:&str)->Result<(),Error>{
         if connection.is_empty()||connection.len()>128{return Err(Error::InvalidInput);}
         for ((conn,_),sub) in &mut self.subscriptions{
-            if conn==connection{sub.state=State::Quarantined;}
+            if conn==connection{
+                sub.state=State::AwaitingSnapshot;
+                sub.seq=None;sub.seen.clear();
+            }
         }
         self.health.reconnects+=1;Ok(())
     }
@@ -131,9 +134,16 @@ impl ReadOnlyStream{
             seq>previous.saturating_add(self.config.max_gap+1)){
             sub.state=State::Quarantined;
             self.health.gaps+=1;
-            // Do not insert/advance after losing a portion of the channel;
-            // the gap remains explicitly quarantined until resnapshot.
-            return Err(Error::Gap);
+            if class!=Classification::Snapshot{
+                // Only a fresh source snapshot may reinitialize the stream;
+                // it still remains PROVISIONAL without full-channel proof.
+                return Err(Error::Gap);
+            }
+            sub.seq=None;sub.seen.clear();
+        }
+        if sub.state==State::AwaitingSnapshot&&
+            class!=Classification::Snapshot{
+            self.health.quarantines+=1;return Err(Error::ReconnectionPending);
         }
         sub.seq=Some(seq);sub.seen.insert(seq,digest.clone());
         if sub.seen.len()>4096{
