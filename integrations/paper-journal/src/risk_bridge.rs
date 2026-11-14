@@ -71,8 +71,9 @@ pub fn replay_guard_from_journal(
             if !account.orders.contains_key(&record.intent_id){
                 return Err(Error::RiskHistoryIncomplete);
             }
-        }else if !account.rejected.contains_key(&record.intent_id){
-            return Err(Error::RiskHistoryIncomplete);
+        }else if account.rejected.get(&record.intent_id).map(String::as_str)
+            !=Some(format!("RISK_GUARD_{}",record.outcome_code).as_str()){
+            return Err(Error::RiskReplayMismatch);
         }
     }
     Ok(rebuilt)
