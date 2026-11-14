@@ -6,6 +6,7 @@ use phoenix_strategies::frozen_registry::{
     Definition,DecisionContext,Action,decide};
 use phoenix_strategies::FrozenSpec;
 use phoenix_source_loader::multi_market::MarketBatchOutcome;
+use phoenix_source_loader::perps_bridge::KalshiPerpsFeatureReport;
 use phoenix_sim::historical::{
     LimitIntent,FractionalBook,SourceWindowEvidence,TradeTape,LiquidityRole,
     HistoricalFeeSource,simulate,simulate_source_window};
@@ -75,6 +76,7 @@ pub fn run_cycle(
     legacy_control:Option<&FrozenSpec>,
     books:&[FractionalBook],tape:TradeTape<'_>,
     strict_source:Option<&SourceWindowEvidence>,
+    perps_features:Option<&KalshiPerpsFeatureReport>,
     historical_fees:&impl HistoricalFeeSource,
     guard:&mut Guard,journal:&mut Journal,
 )->Result<Outcome,Error>{
@@ -99,6 +101,35 @@ pub fn run_cycle(
     }
     if mode!=Mode::SyntheticFixture&&config.synthetic_fixture_only{
         return Err(Error::WrongMode);
+    }
+    if !strategy.required_perps_features.is_empty(){
+        let perps=match perps_features{
+            Some(p)=>p,
+            None=>return Ok(Outcome{stage:Stage::SourceBlocked,
+                reason:"MISSING_PERPS_SOURCE_FEATURE_PROVENANCE".into(),
+                ..base(config,context,strategy)}),
+        };
+        if perps.kalshi_ticker!=market.ticker||
+            perps.decision_received_ns!=context.decision_ns||
+            perps.perps.venues.is_empty()||
+            perps.perps.venues.iter().any(|v|v.source_clock_uncertain||
+                v.latest_quote_received_ns>context.decision_ns){
+            return Ok(Outcome{stage:Stage::SourceBlocked,
+                reason:"PERPS_CLOCK_OR_MARKET_MISMATCH".into(),
+                ..base(config,context,strategy)});
+        }
+        for feature in &strategy.required_perps_features{
+            let supported=context.signals.iter().any(|signal|
+                signal.name==*feature&&signal.source_kind=="perps"&&
+                perps.perps.venues.iter().any(|v|
+                    v.contributing_row_sha256.iter()
+                        .any(|h|h==&signal.source_sha256)));
+            if !supported{
+                return Ok(Outcome{stage:Stage::SourceBlocked,
+                    reason:"PERPS_SIGNAL_SOURCE_SHA_UNMATCHED".into(),
+                    ..base(config,context,strategy)});
+            }
+        }
     }
     let trace=decide(strategy,context,legacy_control)
         .map_err(|_|Error::InvalidSignal)?;
@@ -129,8 +160,12 @@ pub fn run_cycle(
     // Market-manifest SHA is not a contract-rules SHA.
     let source_book=books.iter().filter(|b|b.market==context.market&&
         b.received_ns<=arrival_ns).max_by_key(|b|b.received_ns);
-    let source_sha=source_book.map(|x|x.snapshot_sha256.clone())
-        .unwrap_or_default();
+    let Some(source_book)=source_book else{
+        return Ok(Outcome{stage:Stage::SourceBlocked,
+            reason:"NO_RECEIVED_SOURCE_ORDERBOOK".into(),
+            ..base(config,context,strategy)});
+    };
+    let source_sha=source_book.snapshot_sha256.clone();
     let order=IntentV2{
         order_id:config.order_id.clone(),market:context.market.clone(),
         rules_sha256:config.contract_rules_sha256.clone(),
