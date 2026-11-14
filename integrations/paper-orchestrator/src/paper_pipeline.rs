@@ -241,9 +241,84 @@ pub fn run_cycle(
     result.reason="MODELED_EXECUTION_PENDING_OFFICIAL_SETTLEMENT".into();
     Ok(result)
 }
+/// Evidence-preserving adapter to the existing Phase 10 researcher. It
+/// cannot report realized modeled profits without a separately authenticated
+/// settlement, and never substitutes zero for missing net/fee evidence.
+pub fn to_pending_research_sample(
+    outcome:&Outcome,portfolio:&str,journal:&Journal,
+    event:&str,decision_ns:i64,
+    split:phoenix_research::experiments::Split,
+    requested_hundredths:u64,
+)->Result<phoenix_research::experiments::PositionSample,Error>{
+    use phoenix_research::experiments::{
+        PositionSample,ExecutionStatus,Evidence};
+    if portfolio.is_empty()||event.is_empty()||decision_ns<=0||
+        requested_hundredths==0||
+        outcome.market.is_empty()||
+        outcome.modeled_quantity_hundredths>requested_hundredths{
+        return Err(Error::InvalidCycle);
+    }
+    let (execution,filled)=match outcome.stage{
+        Stage::Abstained=>(ExecutionStatus::Abstain,0),
+        Stage::RiskRejected|Stage::SourceBlocked|Stage::DurableFailure=>
+            (ExecutionStatus::Rejected,0),
+        Stage::NoFill=>(ExecutionStatus::Nonfill,0),
+        Stage::PartialModeled=>
+            (ExecutionStatus::Partial,outcome.modeled_quantity_hundredths),
+        Stage::PendingSettlement=>
+            (ExecutionStatus::Full,outcome.modeled_quantity_hundredths),
+    };
+    if execution==ExecutionStatus::Full&&filled!=requested_hundredths||
+        execution==ExecutionStatus::Partial&&
+        (filled==0||filled==requested_hundredths){
+        return Err(Error::InvalidExecution);
+    }
+    let state=journal.state(portfolio)
+        .and_then(|s|s.arena_v2.as_ref())
+        .ok_or(Error::UnknownPortfolio)?;
+    let (capital,side)=if filled>0{
+        let id=outcome.order_id.as_deref().ok_or(Error::InvalidCycle)?;
+        let position=state.positions.get(id).ok_or(Error::InvalidExecution)?;
+        if position.market!=outcome.market||
+            position.quantity_hundredths!=filled||
+            position.open_cost_micro<=0{
+            return Err(Error::InvalidExecution);
+        }
+        let side=match position.side{
+            PaperSide::Yes=>"yes",PaperSide::No=>"no"};
+        (Some(position.open_cost_micro),side)
+    }else{(None,"unknown")};
+    Ok(PositionSample{event:event.into(),market:outcome.market.clone(),
+        strategy:outcome.strategy_id.clone(),split,decision_ns,
+        outcome_received_ns:None,
+        evidence:Evidence::Synthetic,
+        execution,gross_micro_usd:None,fee_micro_usd:None,
+        net_micro_usd:None,capital_micro_usd:capital,
+        submitted_hundredths:requested_hundredths,
+        filled_hundredths:filled,side:side.into(),
+        allowed_for_estimation:false})
+}
 #[cfg(test)]
 mod tests{
     use super::*;
+    #[test]fn abstention_reporting_never_fabricates_realized_pnl(){
+        use phoenix_research::experiments::{Split,ExecutionStatus};
+        let folder=tempfile::TempDir::new().unwrap();
+        let mut j=Journal::open(folder.path().join("paper")).unwrap();
+        j.append(Event::OpenV2{portfolio:"P".into(),seq:0,at_ns:100,
+            starting_cash_micro:1_000_000}).unwrap();
+        let outcome=Outcome{stage:Stage::Abstained,market:"M".into(),
+            strategy_version_sha256:"a".repeat(64),
+            strategy_id:"s".into(),modeled_quantity_hundredths:0,
+            order_id:None,reason:"NO_TRADE".into(),
+            independently_authenticated_source:false,
+            actual_venue_fill_verified:false,actual_order_submitted:false};
+        let row=to_pending_research_sample(&outcome,"P",&j,"E",
+            150,Split::Validation,100).unwrap();
+        assert_eq!(row.execution,ExecutionStatus::Abstain);
+        assert_eq!(row.net_micro_usd,None);
+        assert!(!row.allowed_for_estimation);
+    }
     #[test]fn safety_flags_cannot_turn_a_paper_cycle_into_live_order(){
         let cfg=CycleConfig{portfolio:"P".into(),order_id:"o".into(),
             submitted_hundredths:100,latency_ns:0,
