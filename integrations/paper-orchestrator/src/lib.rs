@@ -2,6 +2,7 @@
 //! No background collector launcher, trading connector or order API.
 //! All methods are inert until called by an approved operator.
 pub mod paper_pipeline;
+pub mod perps_service;
 use phoenix_kalshi_read_only::stream::{
     ReadOnlyStream,StreamConfig,WireObservation,Error as StreamError,Health};
 use phoenix_historical_input::perps::{
