@@ -111,11 +111,11 @@ impl Guard {
             return Decision::Block(Block::SingleOrderLimit);
         }
         if i.current_market_exposure.checked_add(i.proposed_notional)
-            .is_none_or(|new|new>self.limits.max_market_exposure){
+            .map_or(true,|new|new>self.limits.max_market_exposure){
             return Decision::Block(Block::MarketExposureLimit);
         }
         if i.current_portfolio_exposure.checked_add(i.proposed_notional)
-            .is_none_or(|new|new>self.limits.max_portfolio_exposure){
+            .map_or(true,|new|new>self.limits.max_portfolio_exposure){
             return Decision::Block(Block::PortfolioExposureLimit);
         }
         if self.recent.len()>=MAX_MARKETS&&!self.recent.contains_key(i.market){
