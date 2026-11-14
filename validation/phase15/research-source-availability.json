@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "source": "User-uploaded LunaDelta research ZIPs and LunaResearch snapshot",
+  "method": "Read-only bounded ZIP members, 114 .py files at most 512KiB per member; SHA256 content comparison",
+  "frozen_source_investigation": {
+    "manifest": "research/frozen_models/l_mase_seed_0p15_0p20_0p05_unvalidated_v1/manifest.json",
+    "declared_version": "l_mase_seed_0p15_0p20_0p05_unvalidated_v1",
+    "declared_source_sha256": "538620e34e99e57de19f109ba5fdce9ad7adcb380934f7a8e5e478b0fed90f43",
+    "matching_python_sources_found": 0,
+    "small_python_source_files_checked": 114,
+    "archived_script": "project/luna_experimental_paper.py",
+    "archived_script_sha256": "362038d643fbece296debc52a677c257894d7719517e04ac377d23dfc11e4d6c",
+    "sha_matches_original_frozen_copy": false,
+    "original_definition_status": "ORIGINAL_SOURCE_SHA_MISSING_FROM_UPLOADED_PYTHON_SOURCES",
+    "authentic_strategy_parity": "BLOCKED",
+    "frozen_strategy_source_note": "The archived Python source may be a different revision; exact original inference not authorized."
+  },
+  "strategy_candidate_snapshot": {
+    "file": "research/luna_strategy_candidates_latest.json",
+    "declared_candidates": 10,
+    "actual_records": 10,
+    "reported_status": "PAPER_SPECS_ONLY_NONE_VALIDATED",
+    "empirical_validation": "NOT_RUN"
+  },
+  "settlement_reconciliation_snapshot": {
+    "file": "research/luna_settlement_reconciliation_p0_latest.json",
+    "report_version": "luna_p0_settlement_reconciliation_v1",
+    "report_declared_unique_tickers": 9,
+    "report_declared_unresolved_mismatches": 0,
+    "independent_primary_reverification_in_current_session": false,
+    "settlement_evidence_status": "UNVERIFIED_SELF_REPORTED_RECONCILIATION"
+  },
+  "claimed_return_metrics": null,
+  "after_cost_performance_status": "NOT_COMPUTED",
+  "out_of_sample_status": "NOT_RUN",
+  "read_only": true
+}
