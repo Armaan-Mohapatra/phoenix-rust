@@ -167,6 +167,8 @@ pub fn propose(parent:&Definition,transforms:&[Transform],budget:&Budget,
         child.lifecycle=Lifecycle::Proposed;
         child.control=None;
         child.lineage_parent=Some(parent.id.clone());
+        child.frozen_at_utc=None;
+        child.retired_at_utc=None;
         child.parameters.insert(format!("{:?}",t.kind),
             format!("{}={};{:?}",t.parameter_name,t.value,t.secondary));
         child.parameters.insert("transform_sha256".into(),transform_sha.clone());
@@ -183,6 +185,9 @@ pub fn propose(parent:&Definition,transforms:&[Transform],budget:&Budget,
             .map_err(|_|Error::InvalidTransform)?;
         let config=sha(&conf_bytes);
         child.config_sha256=Some(config.clone());
+        let required_features=child.required_perps_features.iter()
+            .chain(child.required_kalshi_features.iter())
+            .cloned().collect::<BTreeSet<_>>();
         let derived_sha=child.canonical_sha256()
             .map_err(|_|Error::InvalidTransform)?;
         // Append immutable strategy first; the caller must use a distinct
@@ -196,6 +201,7 @@ pub fn propose(parent:&Definition,transforms:&[Transform],budget:&Budget,
         experiment.config_sha256=config.clone();
         experiment.status="PLANNED_DISCOVERY".into();
         experiment.random_seed=budget.seed;
+        let experiment_id=experiment.id.clone();
         experiments.insert(experiment)
             .map_err(|_|Error::ExperimentConflict)?;
         out.push(Candidate{
@@ -206,8 +212,8 @@ pub fn propose(parent:&Definition,transforms:&[Transform],budget:&Budget,
             discovery_only:true,eligible_for_auto_promotion:false,
             execution_model_kind:"EXISTING_PHOENIX_SIM_HISTORICAL".into(),
             comparisons_declared:budget.max_statistical_comparisons,
-            intended_experiment_id:format!("{}-discovery",out.len()),
-            required_features:BTreeSet::new(),
+            intended_experiment_id:experiment_id,
+            required_features,
             rejection_reasons:vec![
                 "NO_MARKET_BACKTEST_EXECUTED".into(),
                 "VALIDATION_AND_OOS_INDEPENDENT_PROOF_REQUIRED".into()],
