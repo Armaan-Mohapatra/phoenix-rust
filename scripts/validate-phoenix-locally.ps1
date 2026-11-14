@@ -19,6 +19,10 @@ param(
     [switch]$IncludeOptionalHft,
     [switch]$IncludeStress,
     [switch]$IncludeOriginalSourceAudit,
+    [switch]$IncludeMultiMarketReplay,
+    [string]$MultiMarketPlan,
+    [string]$MultiMarketPriorReport='-',
+    [string[]]$MultiMarketSourceZips=@(),
     [switch]$IncludeHypothesisResearch,
     [switch]$IncludePerformance,
     [switch]$ContinueAfterFailure,
@@ -81,6 +85,25 @@ if($HistoricalZipDirectory){
 }
 if($IncludeOriginalSourceAudit -and -not $source){
     throw 'HISTORICAL_INPUT_DIRECTORY_REQUIRED'
+}
+if($IncludeMultiMarketReplay){
+    if(-not $MultiMarketPlan -or
+        $MultiMarketSourceZips.Count -lt 1 -or
+        $MultiMarketSourceZips.Count -gt 12){
+        throw 'BOUNDED_MULTIMARKET_PLAN_AND_ZIPS_REQUIRED'
+    }
+    foreach($inputPath in @($MultiMarketPlan)+$MultiMarketSourceZips){
+        if(-not (Test-Path -LiteralPath $inputPath -PathType Leaf)){
+            throw "MULTIMARKET_INPUT_MISSING: $inputPath"
+        }
+        if((IsWithin (FullPath $out) (FullPath $inputPath))){
+            throw 'MULTIMARKET_SOURCE_INPUTS_MUST_BE_READ_ONLY'
+        }
+    }
+    if($MultiMarketPriorReport -ne '-' -and
+        -not (Test-Path -LiteralPath $MultiMarketPriorReport -PathType Leaf)){
+        throw 'MULTIMARKET_PRIOR_REPORT_MISSING'
+    }
 }
 foreach($exe in @('git','rustup','cargo','rustc')){
     if(-not (Get-Command $exe -ErrorAction SilentlyContinue)){
@@ -178,6 +201,7 @@ try{
         core_toolchain=$CoreToolchain;hft_toolchain=$HftToolchain;
         dependency_downloads=[bool]$AllowDependencyDownloads;
         historical_replay=[bool]$IncludeOriginalSourceAudit;
+        multimarket_replay=[bool]$IncludeMultiMarketReplay;
         stress=[bool]$IncludeStress;
         hypothesis_research=[bool]$IncludeHypothesisResearch;
         target_budget_gib=$MaxTargetGiB;build_jobs=$CargoJobs;
@@ -239,6 +263,7 @@ try{
         Block 'power-loss-faults' 'REQUIRES_SEPARATE_OPERATOR_FAULT_ENVIRONMENT'
     }
     if($IncludeOriginalSourceAudit){
+        $env:RUSTUP_TOOLCHAIN=$CoreToolchain
         $launcher=Join-Path $checkout 'integrations/source-loader/scripts/run-original-btc.ps1'
         if(Test-Path -LiteralPath $launcher){
             $historical=Join-Path $logs 'original-btc'
@@ -250,9 +275,19 @@ try{
                 '-OutputDirectory',$historical) $checkout
         }else{Block 'original-btc' 'VERIFIED_SOURCE_LAUNCHER_MISSING'}
     }else{Block 'original-btc' 'REQUIRES_IncludeOriginalSourceAudit'}
-    # These tasks require verified source-specific plans and authentic data;
-    # no implicit heavy run, guessed schema, or data promotion is permitted.
-    Block 'multimarket-historical' 'SIGNED_PLAN_AND_MARKET_CATALOG_REQUIRED'
+    # Multi-market replay requires an externally verified market list and
+    # explicit bounded ZIP files. It is never automatically triggered.
+    if($IncludeMultiMarketReplay){
+        $multi=Join-Path $checkout 'integrations/source-loader/Cargo.toml'
+        Cargo 'multimarket-historical' $CoreToolchain (
+            @('run','--manifest-path',$multi,'--bin',
+              'phoenix-multimarket-replay')+
+            $script:offlineArgs+
+            @('--',$MultiMarketPlan,$MultiMarketPriorReport)+
+            $MultiMarketSourceZips)
+    }else{Block 'multimarket-historical' 'REQUIRES_IncludeMultiMarketReplay_AND_VERIFIED_PLAN'}
+    # Additional tasks require authentic proof beyond a runnable CLI.
+
     Block 'original-perps-schema' 'ACTUAL_ORIGINAL_VENUE_SCHEMA_UNAVAILABLE'
     Block 'source-book-continuity' 'COMPLETE_SNAPSHOT_SEQUENCE_MANIFEST_REQUIRED'
     Block 'effective-dated-fees' 'AUTHENTIC_HISTORICAL_FEE_SCHEDULE_REQUIRED'
@@ -272,6 +307,21 @@ try{
 }finally{
     $script:records | ConvertTo-Json -Depth 6 |
         Set-Content -LiteralPath $reportFile -Encoding UTF8
+    # Lockfile digests are copied to validation evidence. Isolated Cargo may
+    # generate them; the source/production checkout is never modified.
+    $lockRecords=@()
+    if(Test-Path -LiteralPath $checkout -PathType Container){
+        $lockRecords=@(Get-ChildItem -LiteralPath $checkout -Filter 'Cargo.lock' -File -Recurse |
+          ForEach-Object {
+            [pscustomobject]@{
+                path=$_.FullName.Substring($checkout.Length+1);
+                sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+          })
+    }
+    $lockRecords | ConvertTo-Json -Depth 4 |
+        Set-Content -LiteralPath (Join-Path $logs 'resolved_lockfile_sha256.json') -Encoding UTF8
+    Remove-Item Env:RUSTUP_TOOLCHAIN -ErrorAction SilentlyContinue
     [pscustomobject]@{
         exact_sha=$ExpectedSha;
         completed_at_utc=[DateTime]::UtcNow.ToString('o');
