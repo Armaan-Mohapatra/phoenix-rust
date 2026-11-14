@@ -5,7 +5,7 @@ use serde::{Serialize,Deserialize};
 use sha2::{Digest,Sha256};
 use std::collections::{BTreeMap,BTreeSet};
 use phoenix_domain::{Price,Side};
-use crate::{Decision,Abstain,FrozenSpec,ModelSignal,evaluate};
+use crate::{Decision,FrozenSpec,ModelSignal,Recipe,evaluate};
 use phoenix_domain::Book;
 
 const MAX_STRATEGIES:usize=512;
@@ -235,6 +235,16 @@ pub fn decide(d:&Definition,c:&DecisionContext,
     }
     if d.origin!=Origin::Control{return Ok(trace);}
     let control=d.control.ok_or(Error::InvalidDefinition)?;
+    if d.required_perps_features.iter().any(|f|
+        !c.signals.iter().any(|s|s.name==*f&&s.source_kind=="perps")){
+        trace.reason="REQUIRED_PERPS_FEATURE_MISSING".into();
+        return Ok(trace);
+    }
+    if d.required_kalshi_features.iter().any(|f|
+        !c.signals.iter().any(|s|s.name==*f&&s.source_kind=="kalshi")){
+        trace.reason="REQUIRED_KALSHI_FEATURE_MISSING".into();
+        return Ok(trace);
+    }
     if control==Control::NoTrade{
         trace.reason="NO_TRADE_CONTROL".into();return Ok(trace);
     }
@@ -265,6 +275,18 @@ pub fn decide(d:&Definition,c:&DecisionContext,
                 .map_err(|_|Error::UnknownModel)?,model_weight:1});
     }
     let old=spec.ok_or(Error::UnknownModel)?;
+    let expected=match control{
+        Control::MarketImplied=>Recipe::MarketImplied,
+        Control::ModelEdge=>Recipe::ModelEdge,
+        Control::InvertedModelEdge=>Recipe::InvertedModelEdge,
+        Control::WeightedEnsemble=>Recipe::WeightedEnsemble,
+        _=>return Err(Error::UnknownModel),
+    };
+    if old.recipe!=expected||old.id!=d.id||
+        d.code_sha256.as_deref()!=Some(old.code_sha256.as_str())||
+        d.config_sha256.as_deref()!=Some(old.config_sha256.as_str()){
+        return Err(Error::UnknownModel);
+    }
     let decision=evaluate(old,c.decision_ns,&c.book,&model)
         .map_err(|_|Error::UnknownModel)?;
     match decision{
@@ -333,6 +355,13 @@ mod tests{
             value_ticks:6000,received_ns:201,source_sha256:"a".repeat(64),
             source_kind:"synthetic".into()});
         assert!(matches!(decide(&d,&c,None),Err(Error::FutureFeature)));
+    }
+    #[test]fn perps_requirement_must_abstain_when_no_observation_exists(){
+        let mut d=control();d.control=Some(Control::SimpleDirectional);
+        d.required_perps_features.insert("imbalance".into());
+        let decision=decide(&d,&context(),None).unwrap();
+        assert_eq!(decision.action,Action::Abstain);
+        assert_eq!(decision.reason,"REQUIRED_PERPS_FEATURE_MISSING");
     }
     #[test]fn seeded_control_is_deterministic_and_not_a_verified_fill(){
         let mut d=control();d.control=Some(Control::SeededRandom);
