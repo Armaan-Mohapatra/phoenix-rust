@@ -8,7 +8,7 @@ Source development and the operator-controlled local validation campaign are aut
 - Repository: `Armaan-Mohapatra/phoenix-rust`
 - Parent Phase 13 draft PR #35: `codex/phase13-collector-orchestration-v1`, verified parent HEAD `d02fb14fbeabfc4b5d47250b0a60ce7b328e4cad`.
 - Phase 14 child branch: `codex/phase14-integration-freeze-v1`, draft PR targeting Phase 13.
-- Last pre-checkpoint source/doc commit: `3b0f9850d4a5e48a41bd795118a3a3b271cc27c6`.
+- Last pre-checkpoint source/script fix commit: `9d17a1181bf3d35199d6c8d7e95b0c57e3115d7a` (PowerShell harness now calls `Invoke-CargoValidation` rather than shadowing external `cargo`).
 - The exact final checkpoint SHA must be obtained from GitHub after this file is created, and confirmed as the final draft PR head. It cannot be known until this commit is published.
 - Main remains deliberately untouched; existing Phase 0–13 draft PRs and original source archives remain preserved.
 
