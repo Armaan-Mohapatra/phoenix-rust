@@ -118,6 +118,64 @@ impl ImmutableExperiments{
     }
     pub fn repeated_holdouts(&self)->usize{self.oos_uses.len()}
 }
+/// Explicit scale bridge: legacy Money is 1/10,000 USD; historical
+/// fractional execution money is 1/1,000,000 USD. Checked 100x conversion.
+pub fn legacy_1e4_to_micro_usd(value:i128)->Result<i128,Error>{
+    value.checked_mul(100).ok_or(Error::Arithmetic)
+}
+#[derive(Debug,Clone)]
+pub struct EventGroup{
+    pub event:String,pub market:String,
+    pub first_feature_ns:i64,pub last_outcome_ns:i64,
+}
+/// Every overlapping market/event belongs to exactly one split. Gaps
+/// and embargo-classified groups are not magically relabeled train/OOS.
+pub fn assign_grouped_splits(p:&ExperimentSpec,groups:&[EventGroup])
+    ->Result<BTreeMap<(String,String),Split>,Error>{
+    p.validate()?;
+    if groups.len()>MAX_ROWS{return Err(Error::TooManyRows);}
+    let mut out=BTreeMap::new();
+    for g in groups{
+        if g.event.is_empty()||g.market.is_empty()||
+            g.last_outcome_ns<g.first_feature_ns{
+            return Err(Error::InvalidSplit);
+        }
+        let split=p.split_for(g.first_feature_ns,g.last_outcome_ns);
+        let key=(g.event.clone(),g.market.clone());
+        if let Some(other)=out.get(&key){
+            if *other!=split{return Err(Error::Overlap);}
+        }else{out.insert(key,split);}
+    }
+    Ok(out)
+}
+#[derive(Debug,Clone)]
+pub struct WalkForwardSpecification{
+    pub initial_discovery_end_ns:i64,pub validation_width_ns:i64,
+    pub embargo_ns:i64,pub step_ns:i64,pub windows:u32,
+}
+impl WalkForwardSpecification{
+    /// Planning only. Caller must still register immutable versions and
+    /// never reuse an already opened untouched holdout for selection.
+    pub fn windows(&self)->Result<Vec<(i64,i64,i64)>,Error>{
+        if self.initial_discovery_end_ns<=0||
+            self.validation_width_ns<=0||self.step_ns<=0||
+            self.embargo_ns<0||self.windows==0||self.windows>64{
+            return Err(Error::InvalidExperiment);
+        }
+        let mut windows=Vec::new();
+        for n in 0..self.windows{
+            let start=self.initial_discovery_end_ns
+                .checked_add(i64::from(n).checked_mul(self.step_ns)
+                .ok_or(Error::Arithmetic)?).ok_or(Error::Arithmetic)?;
+            let val=start.checked_add(self.embargo_ns)
+                .ok_or(Error::Arithmetic)?;
+            let end=val.checked_add(self.validation_width_ns)
+                .ok_or(Error::Arithmetic)?;
+            windows.push((start,val,end));
+        }
+        Ok(windows)
+    }
+}
 #[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct PositionSample{
     pub event:String,pub market:String,pub strategy:String,
@@ -415,6 +473,24 @@ mod tests{
         assert!(!a.confirmatory_significance);
         assert_eq!(a.adjusted_alpha_millionths,12_500);
         assert!(clustered_bootstrap(&sample[..4],42,300,4).is_err());
+    }
+    #[test]fn micro_usd_unit_bridge_rejects_overflow_and_preserves_exactness(){
+        assert_eq!(legacy_1e4_to_micro_usd(10_000).unwrap(),1_000_000);
+        assert_eq!(legacy_1e4_to_micro_usd(-1).unwrap(),-100);
+        assert!(legacy_1e4_to_micro_usd(i128::MAX).is_err());
+    }
+    #[test]fn market_events_cannot_be_split_across_validation_and_oos(){
+        let groups=[EventGroup{event:"evt".into(),market:"BTC".into(),
+            first_feature_ns:110,last_outcome_ns:190},
+            EventGroup{event:"evt".into(),market:"BTC".into(),
+            first_feature_ns:260,last_outcome_ns:300}];
+        assert!(matches!(assign_grouped_splits(&spec(),&groups),
+            Err(Error::Overlap)));
+    }
+    #[test]fn walk_forward_plans_are_bounded_and_do_not_select_oos(){
+        let p=WalkForwardSpecification{initial_discovery_end_ns:100,
+            validation_width_ns:50,embargo_ns:10,step_ns:60,windows:2};
+        assert_eq!(p.windows().unwrap(),vec![(100,110,160),(160,170,220)]);
     }
     #[test]fn forecast_score_refuses_future_public_outcome(){
         let x=ForecastSample{event:"x".into(),decision_ns:20,resolved_at_ns:19,
