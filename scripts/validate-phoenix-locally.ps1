@@ -38,7 +38,12 @@ if(-not $ExecuteValidation){
     throw 'OPERATOR_AUTHORIZATION_REQUIRED: Script intentionally does nothing without -ExecuteValidation.'
 }
 function FullPath([string]$p){
-    return [System.IO.Path]::GetFullPath($p).TrimEnd([char[]]@('\','/'))
+    $resolved=[System.IO.Path]::GetFullPath($p)
+    $root=[System.IO.Path]::GetPathRoot($resolved)
+    if($resolved.Equals($root,[StringComparison]::OrdinalIgnoreCase)){
+        return $resolved
+    }
+    return $resolved.TrimEnd([char[]]@('\','/'))
 }
 function IsWithin([string]$path,[string]$ancestor){
     return $path.Equals($ancestor,[StringComparison]::OrdinalIgnoreCase) -or
@@ -74,6 +79,10 @@ $repo=FullPath $RepoRoot
 $out=FullPath $OutputDirectory
 Assert-SafeDestination $repo
 Assert-SafeDestination $out
+if($out.Equals([IO.Path]::GetPathRoot($out),
+        [StringComparison]::OrdinalIgnoreCase)){
+    throw 'OUTPUT_MUST_NOT_BE_DRIVE_ROOT'
+}
 if((IsWithin $out $repo) -or (IsWithin $repo $out)){
     throw 'RESEARCH_CHECKOUT_AND_OUTPUT_MUST_BE_DISJOINT'
 }
@@ -83,7 +92,8 @@ if(-not (Test-Path -LiteralPath (Join-Path $repo 'Cargo.toml') -PathType Leaf)){
 $source=$null
 if($HistoricalZipDirectory){
     $source=FullPath $HistoricalZipDirectory
-    if((IsWithin $out $source) -or (IsWithin $repo $source)){
+    if((IsWithin $out $source) -or (IsWithin $source $out) -or
+       (IsWithin $repo $source) -or (IsWithin $source $repo)){
         throw 'RESEARCH_WRITES_MUST_NOT_OVERLAP_HISTORICAL_INPUT'
     }
 }
