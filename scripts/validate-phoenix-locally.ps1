@@ -34,7 +34,7 @@ if(-not $ExecuteValidation){
     throw 'OPERATOR_AUTHORIZATION_REQUIRED: Script intentionally does nothing without -ExecuteValidation.'
 }
 function FullPath([string]$p){
-    return [System.IO.Path]::GetFullPath($p).TrimEnd('\','/')
+    return [System.IO.Path]::GetFullPath($p).TrimEnd([char[]]@('\','/'))
 }
 function IsWithin([string]$path,[string]$ancestor){
     return $path.Equals($ancestor,[StringComparison]::OrdinalIgnoreCase) -or
@@ -139,7 +139,7 @@ function Check-TargetBudget(){
         throw 'LOCAL_BUILD_TARGET_BUDGET_EXCEEDED'
     }
 }
-function Logged([string]$Task,[string]$Exe,[string[]]$Args,[string]$Cwd){
+function Logged([string]$Task,[string]$Exe,[string[]]$CommandArgs,[string]$Cwd){
     Check-TargetBudget
     $script:sequence++
     $log=Join-Path $logs ("{0:D3}_{1}.log" -f $script:sequence,
@@ -148,7 +148,7 @@ function Logged([string]$Task,[string]$Exe,[string[]]$Args,[string]$Cwd){
     $exitCode=999
     Push-Location -LiteralPath $Cwd
     try{
-        & $Exe @Args *> $log
+        & $Exe @CommandArgs *> $log
         $exitCode=if($null -ne $LASTEXITCODE){[int]$LASTEXITCODE}else{0}
     }catch{
         $_ | Out-String | Add-Content -LiteralPath $log
@@ -164,8 +164,8 @@ function Logged([string]$Task,[string]$Exe,[string[]]$Args,[string]$Cwd){
         }
     }
 }
-function Cargo([string]$Task,[string]$Toolchain,[string[]]$Args){
-    Logged $Task 'cargo' (@("+$Toolchain")+$Args) $checkout
+function Cargo([string]$Task,[string]$Toolchain,[string[]]$CommandArgs){
+    Logged $Task 'cargo' (@("+$Toolchain")+$CommandArgs) $checkout
 }
 $reportFile=Join-Path $logs 'results.json'
 $preflightFile=Join-Path $logs 'preflight.json'
@@ -232,7 +232,7 @@ try{
         Cargo 'disk-index-million-ids' $CoreToolchain (@('test',
             '--manifest-path',(Join-Path $checkout 'integrations/disk-identity/Cargo.toml'),
             'million_logical_ids_in_bounded_256_id_transactions',
-            '--','--exact','--nocapture')+$script:offlineArgs)
+            '--','--nocapture')+$script:offlineArgs)
         Block 'windows-powercut' 'REQUIRES_SEPARATE_ISOLATED_HARDWARE_FAULT_CAMPAIGN'
     }else{
         Block 'million-id-index-stress' 'REQUIRES_IncludeStress'
