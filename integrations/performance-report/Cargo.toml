@@ -10,5 +10,6 @@ edition = "2021"
 phoenix-domain = { path = "../../crates/domain" }
 phoenix-pipeline = { path = "../../crates/pipeline" }
 phoenix-research = { path = "../../crates/research" }
+phoenix-strategies = { path = "../../crates/strategies" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
