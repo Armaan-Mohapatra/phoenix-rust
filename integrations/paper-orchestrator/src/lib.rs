@@ -204,11 +204,39 @@ impl Orchestrator{
         Ok(())
     }
 }
+/// Strict caller budget with an independently checked starting usage from
+/// an existing research-only manifest. It never discovers/recurses into
+/// source roots or silently assumes empty disk usage.
+#[derive(Debug,Clone)]
+pub struct DiskBudget{
+    pub limit_bytes:u64,pub confirmed_used_bytes:u64,
+    pub usage_manifest_sha256:String,
+}
+impl DiskBudget{
+    pub fn validate(&self)->Result<(),Error>{
+        if self.limit_bytes==0||self.limit_bytes>4*1024*1024*1024||
+            self.confirmed_used_bytes>self.limit_bytes||
+            self.usage_manifest_sha256.len()!=64||
+            !self.usage_manifest_sha256.bytes().all(|x|x.is_ascii_hexdigit()){
+            return Err(Error::InvalidConfig);
+        }
+        Ok(())
+    }
+    pub fn reserve(&self,needed:u64)->Result<(),Error>{
+        self.validate()?;
+        if self.confirmed_used_bytes.checked_add(needed)
+            .is_none_or(|v|v>self.limit_bytes){
+            return Err(Error::Backpressure);
+        }
+        Ok(())
+    }
+}
 /// Research writer: invoked only by explicit operator call and only with
 /// verified original wire bytes. The durable archive validates dedicated
 /// research-root marker, atomic commit and on-disk integrity.
 pub fn publish_read_only_observation(root:&str,
-    e:&RawReadOnlyEnvelope,o:&WireObservation)->Result<(),Error>{
+    e:&RawReadOnlyEnvelope,o:&WireObservation,
+    budget:&mut DiskBudget)->Result<(),Error>{
     if !safe_research_root(root){return Err(Error::UnsafeOutputRoot);}
     if o.connection_id!=e.connection_id||
         o.received_ns!=e.received_ns||
@@ -231,11 +259,20 @@ pub fn publish_read_only_observation(root:&str,
             session:o.connection_id.clone(),market:o.market.clone(),
             exchange_ns,received_ns:o.received_ns,sequence:o.sequence,
             kind:40,payload:e.raw.as_bytes().to_vec()}};
+    // Source events are capped at 256KiB, and the bounded buffer checks
+    // projected bytes plus conservative metadata overhead. The actual
+    // archive format may consume more: caller must reconcile against
+    // committed manifests before subsequent publication.
+    let projected=(e.raw.len() as u64).checked_add(32*1024)
+        .ok_or(Error::Backpressure)?;
+    budget.reserve(projected)?;
     let archive=Archive::open(Path::new(root))
         .map_err(|x|Error::Archive(format!("{x:?}")))?;
     let published=archive.publish(scope,&[event])
         .map_err(|x|Error::Archive(format!("{x:?}")))?;
     if published.added!=1{return Err(Error::Archive("DUPLICATE_OR_NO_CHANGE".into()));}
+    budget.confirmed_used_bytes=budget.confirmed_used_bytes
+        .checked_add(projected).ok_or(Error::Backpressure)?;
     Ok(())
 }
 #[cfg(test)]
@@ -261,6 +298,16 @@ mod tests{
         let mut o=Orchestrator::new(Config::default()).unwrap();
         assert!(matches!(o.poll_once(&mut Mock,100),Err(Error::DisabledTransport)));
         assert!(!o.health().exchange_order_route_available);
+    }
+    #[test]fn disk_budget_requires_prior_verified_usage_and_fails_closed(){
+        let mut budget=DiskBudget{limit_bytes:1024*1024,
+            confirmed_used_bytes:1024*1024,
+            usage_manifest_sha256:"a".repeat(64)};
+        assert_eq!(budget.reserve(1),Err(Error::Backpressure));
+        budget.confirmed_used_bytes=0;
+        assert!(budget.reserve(512).is_ok());
+        budget.usage_manifest_sha256.clear();
+        assert!(budget.reserve(512).is_err());
     }
     #[test]fn checkpoint_recovery_requires_fresh_snapshot(){
         let mut o=Orchestrator::new(Config::default()).unwrap();
