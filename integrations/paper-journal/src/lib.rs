@@ -5,6 +5,7 @@ use phoenix_parquet_batch::Row;
 use serde::{Deserialize,Serialize};
 use std::collections::{BTreeMap,HashMap,HashSet};
 use std::path::Path;
+pub mod arena_v2;
 pub type Money=i128;
 
 mod money_as_string {
@@ -29,6 +30,9 @@ pub enum Side {Yes,No}
 #[serde(tag="type",rename_all="snake_case")]
 pub enum Event {
     Open {portfolio:String,seq:u64,at_ns:i64,#[serde(with="money_as_string")]starting_cash:Money},
+    OpenV2 {portfolio:String,seq:u64,at_ns:i64,
+        #[serde(with="money_as_string")]starting_cash_micro:Money},
+    ArenaV2 {portfolio:String,seq:u64,at_ns:i64,action:arena_v2::ActionV2},
     Buy {portfolio:String,seq:u64,at_ns:i64,order_id:String,market:String,
         rules_sha256:String,side:Side,price_ticks:u16,quantity:u64,#[serde(with="money_as_string")]fee:Money},
     Settle {portfolio:String,seq:u64,at_ns:i64,order_id:String,market:String,
@@ -38,16 +42,19 @@ pub enum Event {
 }
 impl Event {
     pub fn portfolio(&self)->&str {match self{
-        Self::Open{portfolio,..}|Self::Buy{portfolio,..}|
+        Self::Open{portfolio,..}|Self::OpenV2{portfolio,..}|
+        Self::ArenaV2{portfolio,..}|Self::Buy{portfolio,..}|
         Self::Settle{portfolio,..}|Self::Invalidate{portfolio,..}|
         Self::NoTrade{portfolio,..}=>portfolio,
     }}
     pub fn seq(&self)->u64 {match self{
-        Self::Open{seq,..}|Self::Buy{seq,..}|Self::Settle{seq,..}|
+        Self::Open{seq,..}|Self::OpenV2{seq,..}|
+        Self::ArenaV2{seq,..}|Self::Buy{seq,..}|Self::Settle{seq,..}|
         Self::Invalidate{seq,..}|Self::NoTrade{seq,..}=>*seq,
     }}
     pub fn at_ns(&self)->i64 {match self{
-        Self::Open{at_ns,..}|Self::Buy{at_ns,..}|Self::Settle{at_ns,..}|
+        Self::Open{at_ns,..}|Self::OpenV2{at_ns,..}|
+        Self::ArenaV2{at_ns,..}|Self::Buy{at_ns,..}|Self::Settle{at_ns,..}|
         Self::Invalidate{at_ns,..}|Self::NoTrade{at_ns,..}=>*at_ns,
     }}
 }
@@ -62,12 +69,16 @@ pub struct PortfolioState {
     pub completed:HashSet<String>,pub invalidated_count:u64,
     pub skipped_count:u64,pub settled_count:u64,pub next_seq:u64,
     pub last_recorded_ns:i64,
+    /// Version 2 uses micro-USD and fractional contracts; legacy fields
+    /// retain their original 1e-4 USD units and are never reinterpreted.
+    pub arena_v2:Option<arena_v2::PortfolioV2>,
 }
 impl PortfolioState {
     fn start(cash:Money,at_ns:i64)->Self {
         Self {cash,realized_net:0,positions:HashMap::new(),
             completed:HashSet::new(),invalidated_count:0,skipped_count:0,
-            settled_count:0,next_seq:1,last_recorded_ns:at_ns}
+            settled_count:0,next_seq:1,last_recorded_ns:at_ns,
+            arena_v2:None}
     }
 }
 #[derive(Debug,PartialEq,Eq)]
@@ -75,6 +86,7 @@ pub enum Error {
     InvalidEvent,BadSequence,NoPortfolio,DuplicatePortfolio,
     DuplicateOrder,UnknownOrder,InsufficientFunds,ConflictingMarket,
     EvidenceMissing,Overflow,CorruptJournal(String),
+    ArenaV2(String),
     Storage(String),
 }
 fn digest(s:&str)->bool {
@@ -90,12 +102,28 @@ fn apply(states:&mut HashMap<String,PortfolioState>,e:&Event)->Result<(),Error>{
             states.insert(name.to_owned(),PortfolioState::start(*starting_cash,e.at_ns()));
             Ok(())
         }
+        Event::OpenV2{seq,starting_cash_micro,..}=>{
+            if *seq!=0||*starting_cash_micro<0{return Err(Error::InvalidEvent);}
+            if states.contains_key(name){return Err(Error::DuplicatePortfolio);}
+            let mut p=PortfolioState::start(0,e.at_ns());
+            p.arena_v2=Some(arena_v2::PortfolioV2::new(*starting_cash_micro)
+                .map_err(|x|Error::ArenaV2(format!("{x:?}")))?);
+            states.insert(name.to_owned(),p);Ok(())
+        },
         _=>{
             let s=states.get_mut(name).ok_or(Error::NoPortfolio)?;
             if e.seq()!=s.next_seq||e.at_ns()<s.last_recorded_ns {
                 return Err(Error::BadSequence);
             }
+            if s.arena_v2.is_some()&&!matches!(e,Event::ArenaV2{..}){
+                return Err(Error::InvalidEvent);
+            }
             match e {
+                Event::ArenaV2{action,at_ns,..}=>{
+                    s.arena_v2.as_mut().ok_or(Error::InvalidEvent)?
+                        .apply(action,*at_ns)
+                        .map_err(|x|Error::ArenaV2(format!("{x:?}")))?;
+                },
                 Event::Buy{order_id,market,rules_sha256,side,price_ticks,
                     quantity,fee,..}=>{
                     if order_id.is_empty()||market.is_empty()||!digest(rules_sha256)||
@@ -146,7 +174,7 @@ fn apply(states:&mut HashMap<String,PortfolioState>,e:&Event)->Result<(),Error>{
                     if reason.trim().is_empty(){return Err(Error::InvalidEvent);}
                     s.skipped_count+=1;
                 }
-                Event::Open{..}=>unreachable!(),
+                Event::Open{..}|Event::OpenV2{..}=>unreachable!(),
             }
             s.next_seq+=1;s.last_recorded_ns=e.at_ns();Ok(())
         }
@@ -267,6 +295,36 @@ mod tests{
         assert_eq!(j.append(buy("A","excess")),Err(Error::InsufficientFunds));
         assert_eq!(j.verify_archive().unwrap(),1);
         assert_eq!(j.state("A").unwrap().next_seq,1);
+    }
+    #[test]fn fractional_v2_journal_restores_exact_micro_balances(){
+        use arena_v2::{ActionV2,IntentV2};
+        let t=TempDir::new().unwrap();
+        let path=t.path().join("paper2");
+        let mut j=Journal::open(&path).unwrap();
+        j.append(Event::OpenV2{portfolio:"V2".into(),seq:0,at_ns:100,
+            starting_cash_micro:2_000_000}).unwrap();
+        let intent=IntentV2{order_id:"o1".into(),market:"M".into(),
+            rules_sha256:"a".repeat(64),
+            strategy_version_sha256:"b".repeat(64),
+            source_sha256:"c".repeat(64),fee_schedule_sha256:"d".repeat(64),
+            side:Side::Yes,limit_ticks:6000,quantity_hundredths:150,
+            fee_budget_micro:300,quote_received_ns:90,deadline_ns:300};
+        j.append(Event::ArenaV2{portfolio:"V2".into(),seq:1,
+            at_ns:101,action:ActionV2::Submit{intent}}).unwrap();
+        j.append(Event::ArenaV2{portfolio:"V2".into(),seq:2,
+            at_ns:120,action:ActionV2::Fill{order_id:"o1".into(),
+                fill_id:"f1".into(),quantity_hundredths:50,price_ticks:5500,
+                fee_micro:100,fee_schedule_sha256:"d".repeat(64),
+                source_sha256:"c".repeat(64)}}).unwrap();
+        let before=j.state("V2").unwrap().arena_v2.as_ref().unwrap();
+        assert_eq!(before.positions["o1"].open_cost_micro,275_100);
+        before.conservation_check().unwrap();
+        drop(j);
+        let recovered=Journal::open(&path).unwrap();
+        let after=recovered.state("V2").unwrap().arena_v2.as_ref().unwrap();
+        assert_eq!(after.positions["o1"].open_cost_micro,275_100);
+        assert_eq!(after.reserved_cash_micro,600_200);
+        assert_eq!(recovered.verify_archive().unwrap(),3);
     }
     #[test]fn duplicate_sequence_rejected(){
         let t=TempDir::new().unwrap();
