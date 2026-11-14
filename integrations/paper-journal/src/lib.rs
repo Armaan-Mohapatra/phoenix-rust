@@ -184,6 +184,8 @@ fn apply(states:&mut HashMap<String,PortfolioState>,e:&Event)->Result<(),Error>{
 pub struct Journal {
     archive:Archive,
     states:HashMap<String,PortfolioState>,
+    /// Fatal latch after uncertain storage result: caller MUST reopen/replay.
+    publication_uncertain:bool,
 }
 impl Journal {
     pub fn open(path:impl AsRef<Path>)->Result<Self,Error>{
@@ -209,15 +211,19 @@ impl Journal {
         }).map_err(|e|Error::CorruptJournal(format!("{e:?}")))?;
         let mut states=HashMap::new();
         for e in all.values(){apply(&mut states,e)?;}
-        Ok(Self{archive,states})
+        Ok(Self{archive,states,publication_uncertain:false})
     }
     pub fn state(&self,portfolio:&str)->Option<&PortfolioState>{
         self.states.get(portfolio)
     }
     pub fn portfolios(&self)->usize{self.states.len()}
+    pub fn requires_reopen(&self)->bool{self.publication_uncertain}
     /// Simulate transition first. Persist durable event BEFORE mutating state.
     /// Repeated event IDs are rejected; restart reconstruction is idempotent.
     pub fn append(&mut self,e:Event)->Result<(),Error>{
+        if self.publication_uncertain{
+            return Err(Error::Storage("ARCHIVE_OUTCOME_UNCERTAIN_REOPEN_REQUIRED".into()));
+        }
         let mut proposed=self.states.clone();
         apply(&mut proposed,&e)?;
         let payload=serde_json::to_vec(&e)
@@ -231,9 +237,20 @@ impl Journal {
                 market:e.portfolio().into(),exchange_ns:e.at_ns(),
                 received_ns:e.at_ns(),sequence:e.seq(),kind:50,payload},
         };
-        let p=self.archive.publish(scope,&[event])
-            .map_err(|x|Error::Storage(format!("{x:?}")))?;
-        if p.added!=1{return Err(Error::DuplicateOrder);}
+        let p=match self.archive.publish(scope,&[event]){
+            Ok(p)=>p,
+            Err(x)=>{
+                // A storage error may occur after durable commit but before
+                // acknowledgement. Never retry against stale RAM state.
+                self.publication_uncertain=true;
+                return Err(Error::Storage(format!("{x:?}; REOPEN_REQUIRED")));
+            }
+        };
+        if p.added!=1{
+            self.publication_uncertain=true;
+            return Err(Error::Storage(
+                "NO_NEW_DURABLE_EVENT_REOPEN_REQUIRED".into()));
+        }
         self.states=proposed;Ok(())
     }
     pub fn verify_archive(&self)->Result<usize,Error>{
