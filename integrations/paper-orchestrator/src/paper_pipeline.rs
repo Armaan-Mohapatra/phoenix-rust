@@ -57,15 +57,17 @@ fn append(j:&mut Journal,portfolio:&str,at_ns:i64,
     j.append(Event::ArenaV2{portfolio:portfolio.into(),seq,
         at_ns,action}).map_err(Error::Journal)
 }
-fn base(config:&CycleConfig,context:&DecisionContext,
-    strategy:&Definition)->Outcome{
-    Outcome{stage:Stage::Abstained,
+fn base(_config:&CycleConfig,context:&DecisionContext,
+    strategy:&Definition)->Result<Outcome,Error>{
+    let verified_identity=strategy.canonical_sha256()
+        .map_err(|_|Error::InvalidSignal)?;
+    Ok(Outcome{stage:Stage::Abstained,
         market:context.market.clone(),strategy_id:strategy.id.clone(),
-        strategy_version_sha256:strategy.canonical_sha256().unwrap_or_default(),
+        strategy_version_sha256:verified_identity,
         modeled_quantity_hundredths:0,order_id:None,
         reason:"NOT_EVALUATED".into(),
         independently_authenticated_source:false,
-        actual_venue_fill_verified:false,actual_order_submitted:false}
+        actual_venue_fill_verified:false,actual_order_submitted:false})
 }
 /// Execute exactly ONE synthetic or source-evidence-gated *paper* cycle.
 /// Must be invoked only after portfolio creation and isolated risk-guard init.
@@ -88,16 +90,21 @@ pub fn run_cycle(
         config.quote_depth_micro<0||
         !digest(&config.fee_schedule_sha256)||
         !digest(&config.contract_rules_sha256)||
-        context.market!=market.ticker||context.market!=
-            strict_source.map_or(context.market.as_str(),|s|s.market.as_str()){
+        context.market!=market.ticker||context.event!=market.event||
+        context.series!=market.series||context.decision_ns<=0||
+        context.book.received_ns>context.decision_ns||
+        context.market!=strict_source
+            .map_or(context.market.as_str(),|s|s.market.as_str()){
         return Err(Error::InvalidCycle);
     }
     if !config.synthetic_fixture_only&&
         (strict_source.is_none()||!market.historical_execution_eligible||
-         !market.report_exclusions.is_empty()){
+         !market.report_exclusions.is_empty()||
+         strict_source.is_some_and(|proof|
+            proof.manifest_sha256!=market.source_manifest_sha256)){
         return Ok(Outcome{stage:Stage::SourceBlocked,
             reason:"HISTORICAL_SOURCE_PROVENANCE_NOT_AUTHENTICATED".into(),
-            ..base(config,context,strategy)});
+            ..base(config,context,strategy)?});
     }
     if mode!=Mode::SyntheticFixture&&config.synthetic_fixture_only{
         return Err(Error::WrongMode);
@@ -107,7 +114,7 @@ pub fn run_cycle(
             Some(p)=>p,
             None=>return Ok(Outcome{stage:Stage::SourceBlocked,
                 reason:"MISSING_PERPS_SOURCE_FEATURE_PROVENANCE".into(),
-                ..base(config,context,strategy)}),
+                ..base(config,context,strategy)?}),
         };
         if perps.kalshi_ticker!=market.ticker||
             perps.decision_received_ns!=context.decision_ns||
@@ -116,7 +123,7 @@ pub fn run_cycle(
                 v.latest_quote_received_ns>context.decision_ns){
             return Ok(Outcome{stage:Stage::SourceBlocked,
                 reason:"PERPS_CLOCK_OR_MARKET_MISMATCH".into(),
-                ..base(config,context,strategy)});
+                ..base(config,context,strategy)?});
         }
         for feature in &strategy.required_perps_features{
             let supported=context.signals.iter().any(|signal|
@@ -127,13 +134,13 @@ pub fn run_cycle(
             if !supported{
                 return Ok(Outcome{stage:Stage::SourceBlocked,
                     reason:"PERPS_SIGNAL_SOURCE_SHA_UNMATCHED".into(),
-                    ..base(config,context,strategy)});
+                    ..base(config,context,strategy)?});
             }
         }
     }
     let trace=decide(strategy,context,legacy_control)
         .map_err(|_|Error::InvalidSignal)?;
-    let mut result=base(config,context,strategy);
+    let mut result=base(config,context,strategy)?;
     result.strategy_version_sha256=trace.version_sha256;
     let (side,limit)=match trace.action{
         Action::Abstain=>{
@@ -163,7 +170,7 @@ pub fn run_cycle(
     let Some(source_book)=source_book else{
         return Ok(Outcome{stage:Stage::SourceBlocked,
             reason:"NO_RECEIVED_SOURCE_ORDERBOOK".into(),
-            ..base(config,context,strategy)});
+            ..base(config,context,strategy)?});
     };
     let source_sha=source_book.snapshot_sha256.clone();
     let order=IntentV2{
@@ -211,8 +218,28 @@ pub fn run_cycle(
             return Ok(result);
         }
     };
-    let fills=modeled_fill_actions(&config.order_id,&modeled)
-        .map_err(|_|Error::InvalidExecution)?;
+    if modeled.filled_hundredths==0{
+        // Expire an unfilled hypothetical order without requiring the
+        // nonexistent fill/source evidence of a venue execution.
+        modeled_fill_actions(&config.order_id,&modeled)
+            .map_err(|_|Error::InvalidExecution)?;
+        append(journal,&config.portfolio,config.deadline_ns.max(arrival_ns),
+            ActionV2::Expire{order_id:config.order_id.clone()})?;
+        result.stage=Stage::NoFill;
+        result.reason="NO_MODELED_FILL_WITHIN_SOURCE_WINDOW".into();
+        return Ok(result);
+    }
+    let fills=match modeled_fill_actions(&config.order_id,&modeled){
+        Ok(actions)=>actions,
+        Err(_)=>{
+            append(journal,&config.portfolio,arrival_ns,
+                ActionV2::Cancel{order_id:config.order_id.clone(),
+                    reason:"INCONSISTENT_MODELED_FILL_REPORT".into()})?;
+            result.stage=Stage::SourceBlocked;
+            result.reason="INCONSISTENT_MODELED_FILL_REPORT".into();
+            return Ok(result);
+        }
+    };
     let total_fee_micro=modeled.modeled_fees_centicents
         .checked_mul(100).ok_or(Error::Overflow)?;
     if total_fee_micro>config.fee_budget_micro||
@@ -322,6 +349,27 @@ mod tests{
         assert_eq!(row.net_micro_usd,None);
         assert!(!row.allowed_for_estimation);
     }
+    #[test]fn invalid_frozen_identity_cannot_be_rendered_as_empty_hash(){
+        let mut d=fixture_definition();
+        d.manifest_sha256="bad".into();
+        let context=DecisionContext{market:"M".into(),event:"E".into(),
+            series:"S".into(),decision_ns:100,
+            book:phoenix_domain::Book{market:"M".into(),
+                yes_bids:vec![],no_bids:vec![],
+                exchange_ns:80,received_ns:90,sequence:1,
+                session_id:"fixture".into()},
+            signals:vec![],random_seed:None};
+        let cfg=CycleConfig{portfolio:"P".into(),order_id:"o".into(),
+            submitted_hundredths:100,latency_ns:0,
+            quote_max_age_ns:1,deadline_ns:200,
+            maker_extra_queue_hundredths:0,
+            fee_schedule_sha256:"a".repeat(64),
+            contract_rules_sha256:"b".repeat(64),
+            role:LiquidityRole::Taker,
+            fee_budget_micro:100,quote_depth_micro:100,
+            synthetic_fixture_only:true};
+        assert!(matches!(base(&cfg,&context,&d),Err(Error::InvalidSignal)));
+    }
     #[test]fn safety_flags_cannot_turn_a_paper_cycle_into_live_order(){
         let cfg=CycleConfig{portfolio:"P".into(),order_id:"o".into(),
             submitted_hundredths:100,latency_ns:0,
@@ -337,7 +385,7 @@ mod tests{
                 market:"M".into(),yes_bids:vec![],no_bids:vec![],
                 exchange_ns:1,received_ns:1,sequence:1,
                 session_id:"mock".into()},signals:vec![],random_seed:None},
-            &fixture_definition()).actual_order_submitted);
+            &fixture_definition()).unwrap().actual_order_submitted);
     }
     fn fixture_definition()->Definition{
         use phoenix_strategies::frozen_registry::{Origin,Lifecycle,Control};

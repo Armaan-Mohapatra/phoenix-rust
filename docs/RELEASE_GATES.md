@@ -1,50 +1,37 @@
-# Phoenix Rust release gates
+# Phoenix Rust — current release and research evidence gates
 
-See the [initial 2026-11-12 code freeze](CHECKPOINT_2026-11-12.md) and the [post-freeze mission continuation](CONTINUATION_2026-11-12.md) for verified follow-up work.
+**Authoritative Phase 14 status: SOURCE INTEGRATION PREPARED, UNTESTED.**
+This table supersedes older gate summaries for the *current* stacked feature branch. Past CI and synthetic test successes on older commit SHAs do **not** transfer to the Phase 14 commit, and none are called runtime proof for the changed source.
 
-A successful synthetic CI test proves software invariants on fixtures, not system readiness.
-
-| Gate | Proof required | Current |
+| Gate | Required verification | Phase 14 status |
 |---|---|---|
-| G0 — Workspace | Rust compile/tests on Windows and Linux; static dependency review | TESTED |
-| G1 — Binary economics | Fixed-point fee rounding; complementary books; incomplete/invalid states rejected | TESTED on synthetic |
-| G2 — L2 stream | Snapshot/delta replay; subscription sequence gaps; conflated clock handling; fractional quantities identified | SYNTHETIC TESTS ONLY |
-| G3 — Archive durability | Complete append-only snapshot/Parquet writer with SHA256 manifest, fsync/checkpoint recovery and sealed-only readers | **PARTIAL:** PR #9 adds locked, sealed bounded research partitions, fsync, SHA256 and crash quarantine; Windows directory power-cut durability, large indexes and real feed integration remain OPEN |
-| G4 — Actual settlement | Exact contract rules and independently sourced reference data; market IDs match evaluated trades | **NOT DONE:** synthetic reference-window calculation only; PR #15 blocks unjustified independent evidence promotion |
-| G5 — Historical replay | Full chronological market streams, measured latency, queue-aware fills, conservative missing-data behavior | **PARTIAL:** PR #12 passes a full **synthetic** wire→archive→strategy→modeled P&L replay; no verified real history/latency or queue parity |
-| G6 — Strategies | Frozen code/config SHA, fully reproducible baseline and controls, no lookahead and untouched OOS | PARTIAL (interface only) |
-| G7 — Paper trading | Persistent event-sourced multi-portfolio ledger, idempotent recovery, independent settlement | **PARTIAL:** PR #14 adds tested durable multi-portfolio paper event recovery, but no full order lifecycle, independent settlement or scale tests |
-| G8 — Operations | Resource benchmarks, failure injections, telemetry, no collector disruptions, explicit install authorization | NOT DONE |
+| G0 Build and dependency graph | Exact clean Windows SHA checkout; Cargo metadata, compile, fmt, clippy, ALL root and standalone tests; pin/cache audit | **NOT RUN — SOURCE ONLY** |
+| G1 Fixed-point economics | 1e-4 USD legacy vs 1e-6 USD micro ledger, 1e-2 contract, effective-dated fees/rounding, no fee double count | **NOT RUN**; checked interfaces only |
+| G2 Market stream/L2 integrity | True shared-channel SID/session continuity, snapshot+delta gap detection, genuine source order book completeness | **UNVERIFIED ORIGINAL DATA** |
+| G3 Sealed archive durability | Immutable Parquet+manifest, no overwrite, redb indexed reconciliation, cold-reopen corruption/fault stress; actual Windows hard-link and power-loss behavior | **NOT RUN**; scalable indexed mode is separate from legacy paper-journal writer |
+| G4 Contract/settlement | Original contract identity/rules, official finalized result and separately verified independent primary reference, no revision conflict | **UNVERIFIED**; journal SettleClaim is a modeled claim, not authenticated |
+| G5 Historical execution | Original-source replay; arrival and queue evidence; taker/maker comparison; source continuity; nonfills/partial fills; historical fee correctness | **NOT RUN**; simulation source does not prove venue fills |
+| G6 Frozen strategy parity | Reproducible archived original code+configuration; controls/hypotheses separated; original decisions reproduced; temporal/OOS safeguards | **BLOCKED**: 11 original October frozen version IDs, 0 complete executable originals |
+| G7 Paper Arena durability | Exact fractional cash conservation; persisted risk decisions/restart replay/cooldown; 2+ portfolio isolation; fault injection; corruption; duplicate suppression | **SOURCE REPAIRED, NOT RUN** |
+| G8 Statistical research | Discovery/validation/embargo/untouched OOS; event cluster dependence; negative/inconclusive outcomes; after-cost return and multiple comparisons | **NOT RUN**; no confirmatory returns or significance |
+| G9 Perps source | Real venue schema, unit/precision, session mappings, causal timestamp checks, independent original source hashes | **UNVERIFIED ORIGINAL SCHEMA** |
+| G10 Operational security | Safe output root, symlink/junction/TOCTOU, disk/RAM/CPU bounds, stopped/disabled network by default, no exchange-order route | **STATIC REVIEW ONLY** |
+| G11 Windows validation | Operator-approved isolated offline tests, physical hard-link/reparse/safe shutdown and power-loss checks; exact machine-readable logs | **SCRIPT AUTHORED, NOT EXECUTED** |
+| G12 Install/deploy | Separate production migration/collector approval, documented recovery playbook, no live orders | **NOT AUTHORIZED** |
 
-Go/no-go: No real data ingestion, no private source files, no daemon deployment, no production migration, and no exchange orders are authorized by this draft. A failing or blocked gate is not evidence of profitability.
+**No-go:** Current source is not a release candidate, not validated paper-trading infrastructure and not evidence of a profitable strategy. Do not deploy, merge, touch collectors, migrate original data or route exchange orders.
 
-## Test policy
-- Train, validation and untouched confirmation periods remain separate; event-level dependence is clustered.
-- No use of future market-book snapshots in decisions or simulated order arrival.
-- Fees must reference contract-specific effective schedules, not a universal fee model.
-- Missing independent settlement proof produces an explicit missing status, never zero P&L.
-- Order-book gaps invalidate affected markets until resnapshot and never produce guaranteed fills.
-- Disclose queue and latency modeling assumptions and adverse selection.
-- No trial can be relabeled untouched after its results have influenced tuning.
+## Earlier tests versus current development
 
-For upstream design consult official Kalshi API docs at https://docs.kalshi.com/api-reference/market/get-market-orderbook and https://docs.kalshi.com/websockets/orderbook-updates.
+- Earlier November 12 snapshots and older PR commits reported synthetic Windows/Linux CI passes on portions of original core, wire, sealed archive, index, and paper-journal code. These claims apply **only to their specific original SHAs/test fixtures** and cannot prove new Phase 5.1–14 behavior.
+- Phase 6–14 source development is stacked, uncompiled and untested. Each child branch has a draft PR and `[skip ci]` commits; no source branch in this stack is merged to `main`.
+- Original BTC dataset ZIP and selected Parquet member hashes were previously inspected; no Phase 14 original-source Rust replay or authentic settlement run occurred.
+- Authenticated market publication, complete historical book, effective-dated fee rules, original October strategy parameters, Perps original schema and untouched OOS outcomes remain separate missing evidence.
 
-## Reporting milestone
+## Explicit local validation order
 
-PR #13 supplies a standalone deterministic synthetic/research performance reporter. It preserves negative outcomes, leaves pending P&L null, and separates modelled settlement claims from actual independent proof. Not an automated publisher or a completed G8 operational release.
+The authorized *future* operator invokes `scripts/validate-phoenix-locally.ps1` with `-ExecuteValidation`, exact expected Phase 14 HEAD and isolated output root. With default switches it prepares an isolated local checkout and runs bounded tests, cargo fmt/clippy and all standalone crates **only then**. Optional upstream hftbacktest requires Rust 1.91.1 and a separate opt-in; core workspace declares Rust 1.78.0. Expensive archive stress/original BTC replay/optimization and resource benchmarking require independent switches and authentic inputs. Missing market source evidence results in **BLOCKED**, not false success.
 
-## 2026-11-12 upstream and real-data additions
+Successful software tests will be a necessary but insufficient release gate. Historical execution/fees/settlements, source continuity, independent financial outcomes, and Windows physical power-loss behavior require their own proof.
 
-- PR #16 assembles all previous sibling modules and adds a **direct, pinned, backtest-only hftbacktest** Rust queue/latency adapter. Upstream live features are disabled; synthetic queue parity and Linux/Windows tests passed.
-- Source-level independent Rust mathematical ports from Apache-2.0 Oracle3 and MIT Ryan Frigo, plus an MIT Tarpboi-inspired risk guard, have passed standalone CI. These are **not direct upstream dependencies** and are not deployed.
-- A minimal projected sample of a **real archived October 24 BTC paper ledger** passed fixed-point P&L arithmetic on Windows/Linux. It is not a raw orderbook replay, actual venue fill, independent index settlement or verified after-cost investment strategy.
-- The full assembled integration workflow now includes the core, L2 codec, archive, historical-input, paper journal, reporting, HFT queue, three port families and real-ledger parity. Treat the latest CI result as authoritative; a passing fixture matrix cannot promote release gates G4/G5.
-
-
-## 2026-11-12 research source and indexed-storage integration
-
-Draft PR #19 provides a verified seal-then-redb publisher wrapper: Parquet/manifest SHA and per-event row hash are checked on restart, and missing redb commits are replayed transactionally; orphan DB markers fail closed. Initial Windows+Linux CI passed. **G3 remains PARTIAL** because original archive still holds 250k in-memory IDs, there is no tested disk-mode migration or Windows power-loss proof. Draft PR #17 includes a read-only Windows original ZIP launcher with a 24-member SHA-validating allowlist, and 24/24 selected actual Parquet source bytes have been independently hashed. **G4/G5 remain blocked**: no independent CF primary BRTI, fresh official result, complete book initialization, or actual original-file Rust run yet. See [checkpoint](CHECKPOINT_SEALED_INDEX_SOURCE_2026-11-12.md).
-
-## Real source replay checkpoint (2026-11-12 PST)
-
-Draft PR #17 implements an original ZIP Parquet reader with source SHA checks and source-derived BTC 5-projection arithmetic. **G4 independent settlement OPEN**, **G5 genuine full raw Rust replay OPEN**, **G3 disk-backed index OPEN**. Forensic source initialization UNKNOWN; any modeled fill remains provisional. See [checkpoint](CHECKPOINT_HISTORICAL_SOURCE_2026-11-12.md). Draft PR #18 separately tests a 16MiB-cache transactional disk index on Windows/Linux, **not yet wired** to archive; no production migration. No source/collector modification or main merge.
+See `PHASE14_SOURCE_INVENTORY.md`, `PHASE14_STATIC_SECURITY_AUDIT.md`, `PHASE14_VALIDATION_MATRIX.md`, and the exact Phase 14 feature-freeze checkpoint.

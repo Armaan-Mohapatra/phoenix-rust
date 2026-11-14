@@ -49,6 +49,7 @@ pub enum Block {
 pub enum Decision {Allow,RequireDepth,Block(Block)}
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub enum AccountingUnit {LegacyTenThousandths,MicroUsd}
+#[derive(Clone)]
 pub struct Guard{
     limits:Limits,
     accounting_unit:AccountingUnit,
@@ -82,6 +83,26 @@ impl Guard {
         Ok(result)
     }
     pub fn accounting_unit(&self)->AccountingUnit{self.accounting_unit}
+    /// A canonical, explicit configuration identity, preserving monetary
+    /// unit. This is a guard-configuration tag, NOT a source hash.
+    pub fn configuration_identity(&self)->String{
+        format!("{:?}:{}:{}:{}:{}:{}:{}:{}:{}",
+            self.accounting_unit,self.limits.max_single_order,
+            self.limits.max_market_exposure,self.limits.max_portfolio_exposure,
+            self.limits.min_quote_depth,self.limits.large_order_threshold,
+            self.limits.large_burst_count,self.limits.lookback_ns,
+            self.limits.cooldown_ns)
+    }
+    /// Restart from the identical limit/unit contract but *without*
+    /// in-memory decisions. The caller must replay the durable risk audit
+    /// before using this guard to authorize a new hypothetical order.
+    pub fn empty_same_configuration(&self)->Self{
+        Self{limits:self.limits,accounting_unit:self.accounting_unit,
+            recent:HashMap::new(),identities:BTreeSet::new(),
+            last_ns:None,tripped_until:None}
+    }
+    pub fn registered_intents(&self)->usize{self.identities.len()}
+
     pub fn preflight(&mut self,i:&Intent<'_>)->Decision{
         if i.id.is_empty()||i.id.len()>128||i.market.is_empty()||
             i.market.len()>128||i.at_ns<0||i.proposed_notional<=0||
@@ -212,6 +233,21 @@ mod tests{
         assert_eq!(guard.preflight(&intent),Decision::Allow);
         assert_eq!(guard.preflight(&Intent{proposed_notional:5_100_001,
             id:"B",at_ns:101,..intent}),Decision::Block(Block::SingleOrderLimit));
+    }
+    #[test]fn lossless_configuration_clone_replay_and_cooldown_are_stable(){
+        let mut g=Guard::new_micro(cfg()).unwrap();
+        let tag=g.configuration_identity();
+        let risk=Intent{id:"a",market:"BTC",at_ns:100,
+            proposed_notional:3_000_000,current_market_exposure:0,
+            current_portfolio_exposure:0,quote_received_ns:99,
+            max_quote_age_ns:20};
+        assert_eq!(g.preflight(&risk),Decision::RequireDepth);
+        let mut replay=g.empty_same_configuration();
+        assert_eq!(replay.configuration_identity(),tag);
+        assert_eq!(replay.registered_intents(),0);
+        assert_eq!(replay.preflight(&risk),Decision::RequireDepth);
+        assert_eq!(replay.registered_intents(),1);
+        assert_eq!(replay.preflight(&risk),Decision::Block(Block::DuplicateIntent));
     }
     #[test]fn invalid_configurations_never_start(){
         let mut c=cfg();c.large_burst_count=0;

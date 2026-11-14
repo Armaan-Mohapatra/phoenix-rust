@@ -7,7 +7,9 @@ use std::collections::{BTreeMap,BTreeSet};
 pub type MicroUsd=i128; // 1/1,000,000 US dollar
 pub const WHOLE_CONTRACT_HUNDREDTHS:u64=100;
 pub const PAYOUT_TICKS_MICRO:u16=10_000; // qty(1e-2)*p(1e-4) -> USD(1e-6)
-const MAX_ORDERS:usize=50_000;
+// Same finite portfolio decision budget as existing risk-guard identity cap.
+// The reducer clones proposed state before durable publication.
+const MAX_ORDERS:usize=4_096;
 fn valid_hash(s:&str)->bool{
     s.len()==64&&s.bytes().all(|b|b.is_ascii_hexdigit())
 }
@@ -24,9 +26,26 @@ pub struct IntentV2{
     pub fee_budget_micro:MicroUsd,
     pub quote_received_ns:i64,pub deadline_ns:i64,
 }
+/// Risk evidence is part of a *single* already-durable journal event.
+/// Exact preflight inputs are serialized to allow deterministic guard replay.
+#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
+pub struct RiskAuditV2{
+    pub intent_id:String,pub market:String,pub at_ns:i64,
+    #[serde(with="super::money_as_string")]
+    pub proposed_notional_micro:MicroUsd,
+    #[serde(with="super::money_as_string")]
+    pub current_market_micro:MicroUsd,
+    #[serde(with="super::money_as_string")]
+    pub current_portfolio_micro:MicroUsd,
+    #[serde(with="super::money_as_string")]
+    pub observed_depth_micro:MicroUsd,
+    pub quote_received_ns:i64,pub max_quote_age_ns:i64,
+    pub guard_configuration_identity:String,pub outcome_code:String,
+}
 #[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(tag="action",rename_all="snake_case")]
 pub enum ActionV2{
+    RiskAssessed{intent:IntentV2,audit:RiskAuditV2},
     Submit{intent:IntentV2},
     Reject{order_id:String,reason:String},
     Fill{order_id:String,fill_id:String,
@@ -70,6 +89,10 @@ pub struct PortfolioV2{
     pub pending_settlement_count:u64,pub modeled_settlements:u64,
     pub invalidated:u64,pub skipped:u64,
     pub source_evidence_authenticated_by_journal:bool,
+    /// V2 legacy direct Submit/Reject are allowed for offline fixtures, but
+    /// cannot be promoted into a restart-safe guarded portfolio.
+    pub risk_history_complete:bool,
+    pub risk_history:Vec<RiskAuditV2>,
 }
 #[derive(Debug,Clone,PartialEq,Eq)]
 pub enum Error{InvalidIntent,InvalidEvent,DuplicateOrder,UnknownOrder,
@@ -84,7 +107,8 @@ impl PortfolioV2{
             orders:BTreeMap::new(),positions:BTreeMap::new(),
             completed:BTreeSet::new(),rejected:BTreeMap::new(),
             pending_settlement_count:0,modeled_settlements:0,
-            invalidated:0,skipped:0,source_evidence_authenticated_by_journal:false})
+            invalidated:0,skipped:0,source_evidence_authenticated_by_journal:false,
+            risk_history_complete:true,risk_history:Vec::new()})
     }
     pub fn unrealized_net_micro(&self)->Option<MicroUsd>{
         // No contemporaneous independently verified liquidation price here.
@@ -96,7 +120,9 @@ impl PortfolioV2{
     }
     pub fn conservation_check(&self)->Result<(),Error>{
         if self.available_cash_micro<0||self.reserved_cash_micro<0||
-            self.orders.len()>MAX_ORDERS{return Err(Error::ConservationFailure);}
+            self.orders.len()>MAX_ORDERS||self.risk_history.len()>4096{
+            return Err(Error::ConservationFailure);
+        }
         let expected=self.orders.values().try_fold(0i128,|total,o|
             total.checked_add(o.reserved_micro).ok_or(Error::Arithmetic))?;
         if expected!=self.reserved_cash_micro{
@@ -180,8 +206,62 @@ impl PortfolioV2{
     fn apply_inner(&mut self,action:&ActionV2,at_ns:i64)->Result<(),Error>{
         if at_ns<=0{return Err(Error::InvalidEvent);}
         match action{
-            ActionV2::Submit{intent}=>self.submit(intent.clone(),at_ns)?,
+            ActionV2::RiskAssessed{intent,audit}=>{
+                if self.risk_history.len()>=4096||
+                    audit.intent_id!=intent.order_id||
+                    audit.market!=intent.market||audit.at_ns!=at_ns||
+                    audit.quote_received_ns!=intent.quote_received_ns||
+                    audit.max_quote_age_ns<0||
+                    audit.observed_depth_micro<0||
+                    audit.guard_configuration_identity.is_empty()||
+                    audit.guard_configuration_identity.len()>512||
+                    audit.outcome_code.len()>128||
+                    audit.outcome_code.is_empty()||
+                    audit.proposed_notional_micro!=Self::accepted(intent,at_ns)?||
+                    audit.current_market_micro<0||
+                    audit.current_portfolio_micro<0||
+                    audit.current_market_micro>audit.current_portfolio_micro{
+                    return Err(Error::InvalidEvent);
+                }
+                // Recompute exposure from the actual PRE-DECISION journal
+                // state. A caller cannot forge a smaller exposure to bypass
+                // the modeled market/portfolio cap and survive restart.
+                let market_positions=self.positions.values()
+                    .filter(|p|p.market==intent.market)
+                    .try_fold(0i128,|acc,p|
+                        acc.checked_add(p.open_cost_micro).ok_or(Error::Arithmetic))?;
+                let market_reserved=self.orders.values()
+                    .filter(|o|o.intent.market==intent.market)
+                    .try_fold(0i128,|acc,o|
+                        acc.checked_add(o.reserved_micro).ok_or(Error::Arithmetic))?;
+                let global_reserve=self.reserved_cash_micro;
+                let actual_market=market_positions.checked_add(market_reserved)
+                    .ok_or(Error::Arithmetic)?;
+                let actual_portfolio=self.total_invested_micro()?
+                    .checked_add(global_reserve).ok_or(Error::Arithmetic)?;
+                if audit.current_market_micro!=actual_market||
+                    audit.current_portfolio_micro!=actual_portfolio{
+                    return Err(Error::InvalidEvent);
+                }
+                if audit.outcome_code=="ALLOW"{
+                    self.submit(intent.clone(),at_ns)?;
+                }else if audit.outcome_code.starts_with("BLOCK_"){
+                    if self.orders.contains_key(&intent.order_id)||
+                        self.rejected.contains_key(&intent.order_id)||
+                        self.completed.contains(&intent.order_id){
+                        return Err(Error::DuplicateOrder);
+                    }
+                    self.rejected.insert(intent.order_id.clone(),
+                        format!("RISK_GUARD_{}",audit.outcome_code));
+                }else{return Err(Error::InvalidEvent);}
+                self.risk_history.push(audit.clone());
+            },
+            ActionV2::Submit{intent}=>{
+                self.risk_history_complete=false;
+                self.submit(intent.clone(),at_ns)?;
+            },
             ActionV2::Reject{order_id,reason}=>{
+                self.risk_history_complete=false;
                 if order_id.is_empty()||reason.trim().is_empty()||
                     self.rejected.contains_key(order_id)||
                     self.orders.contains_key(order_id){
@@ -264,6 +344,10 @@ impl PortfolioV2{
                 self.cancel(order_id,OrderStatus::Expired)?;
             },
             ActionV2::Replace{order_id,replacement,reason}=>{
+                // Historical direct replacements are replayable, but not
+                // reconstructible as guarded decisions. A future guarded
+                // replacement must persist its own RiskAssessed witness.
+                self.risk_history_complete=false;
                 if reason.trim().is_empty()||order_id==&replacement.order_id{
                     return Err(Error::InvalidEvent);
                 }
@@ -386,11 +470,22 @@ pub fn modeled_fill_actions(
         report.filled_hundredths>report.submitted_hundredths{
         return Err(Error::InvalidEvent);
     }
+    if report.filled_hundredths==0{
+        // A legitimately unfilled modeled order has neither monetary cost
+        // nor fee nor a fabricated fill/source SHA.
+        if !report.modeled_fills.is_empty()||
+            report.modeled_cost_micro_usd!=0||
+            report.modeled_fees_centicents!=0{
+            return Err(Error::InvalidEvent);
+        }
+        return Ok(Vec::new());
+    }
     let source=report.quote_source_sha256.as_ref()
         .ok_or(Error::InconsistentSource)?;
     if !valid_hash(source){return Err(Error::InconsistentSource);}
     let mut out=Vec::new();
-    let mut sum=0u64;
+    let mut sum=0u64;let mut total_cost=0i128;
+    let mut total_fee=0i128;
     for (i,f) in report.modeled_fills.iter().enumerate(){
         if f.quantity_hundredths==0||!valid_hash(&f.fee_schedule_sha256){
             return Err(Error::MissingFee);
@@ -402,6 +497,11 @@ pub fn modeled_fill_actions(
             .ok_or(Error::Arithmetic)?{
             return Err(Error::Arithmetic);
         }
+        total_cost=total_cost.checked_add(f.cost_micro_usd)
+            .ok_or(Error::Arithmetic)?;
+        if f.fee_centicents<0{return Err(Error::MissingFee);}
+        total_fee=total_fee.checked_add(f.fee_centicents)
+            .ok_or(Error::Arithmetic)?;
         out.push(ActionV2::Fill{order_id:order_id.into(),
             fill_id:format!("{}:level:{}",order_id,i),
             quantity_hundredths:f.quantity_hundredths,
@@ -410,7 +510,11 @@ pub fn modeled_fill_actions(
             fee_schedule_sha256:f.fee_schedule_sha256.clone(),
             source_sha256:source.clone()});
     }
-    if sum!=report.filled_hundredths{return Err(Error::InvalidQuantity);}
+    if sum!=report.filled_hundredths||
+        total_cost!=report.modeled_cost_micro_usd||
+        total_fee!=report.modeled_fees_centicents{
+        return Err(Error::InvalidQuantity);
+    }
     Ok(out)
 }
 #[cfg(test)]
@@ -436,6 +540,21 @@ mod tests{
             reason:"synthetic test".into()},130).unwrap();
         assert_eq!(s.reserved_cash_micro,0);
         s.conservation_check().unwrap();
+    }
+    #[test]fn modeled_execution_report_zero_fills_never_invents_cost_or_fee(){
+        use phoenix_sim::historical::{ExecutionReport,LiquidityRole,OrderState};
+        let r=ExecutionReport{schema_version:1,market:"M".into(),
+            strategy_order_id:"o".into(),role:LiquidityRole::Taker,
+            state:OrderState::Unfilled,submitted_hundredths:100,
+            filled_hundredths:0,unfilled_hundredths:100,
+            modeled_fills:vec![],modeled_cost_micro_usd:0,
+            modeled_fees_centicents:0,quote_received_ns:None,
+            order_arrival_ns:100,event_deadline_ns:200,
+            quote_source_sha256:None,conservative_queue_ahead_hundredths:None,
+            latency_ns:0,assumptions:vec![],venue_fill_verified:false};
+        assert!(modeled_fill_actions("o",&r).unwrap().is_empty());
+        let mut fake=r;fake.modeled_fees_centicents=1;
+        assert_eq!(modeled_fill_actions("o",&fake),Err(Error::InvalidEvent));
     }
     #[test]fn zero_cash_phantom_duplicate_and_missing_outcome_blocked(){
         let mut s=PortfolioV2::new(100_000).unwrap();
@@ -474,6 +593,47 @@ mod tests{
         let before=s.available_cash_micro;
         assert_eq!(s.apply(&fill,131),Err(Error::DuplicateOrder));
         assert_eq!(s.available_cash_micro,before);
+    }
+    #[test]fn historical_replacement_blocks_unwitnessed_future_risk_promotion(){
+        let mut s=PortfolioV2::new(3_000_000).unwrap();
+        s.apply(&ActionV2::Submit{intent:intent("old")},100).unwrap();
+        assert!(!s.risk_history_complete);
+        s.apply(&ActionV2::Replace{order_id:"old".into(),
+            replacement:intent("new"),reason:"synthetic".into()},110).unwrap();
+        assert!(!s.risk_history_complete);
+    }
+    #[test]fn forged_exposure_cannot_bypass_journal_state(){
+        let mut s=PortfolioV2::new(3_000_000).unwrap();
+        s.apply(&ActionV2::Submit{intent:intent("old")},100).unwrap();
+        let now=intent("new");
+        let a=RiskAuditV2{intent_id:now.order_id.clone(),
+            market:now.market.clone(),at_ns:110,
+            proposed_notional_micro:900_300,
+            current_market_micro:0,current_portfolio_micro:0,
+            observed_depth_micro:1_000_000,
+            quote_received_ns:90,max_quote_age_ns:100,
+            guard_configuration_identity:"configured".into(),
+            outcome_code:"ALLOW".into()};
+        let before=s.clone();
+        assert_eq!(s.apply(&ActionV2::RiskAssessed{
+            intent:now,audit:a},110),Err(Error::InvalidEvent));
+        assert_eq!(s,before);
+    }
+    #[test]fn durable_risk_assessment_is_one_event_and_direct_legacy_submit_is_flagged(){
+        let mut s=PortfolioV2::new(2_000_000).unwrap();
+        let i=intent("reviewed");
+        let a=RiskAuditV2{intent_id:i.order_id.clone(),market:i.market.clone(),
+            at_ns:100,proposed_notional_micro:900_300,
+            current_market_micro:0,current_portfolio_micro:0,
+            observed_depth_micro:1_000_000,
+            quote_received_ns:90,max_quote_age_ns:20,
+            guard_configuration_identity:"unit:configured".into(),
+            outcome_code:"ALLOW".into()};
+        s.apply(&ActionV2::RiskAssessed{intent:i,audit:a},100).unwrap();
+        assert_eq!(s.risk_history.len(),1);
+        assert!(s.risk_history_complete);
+        s.apply(&ActionV2::Submit{intent:intent("old")},101).unwrap();
+        assert!(!s.risk_history_complete);
     }
     #[test]fn unknown_settlement_keeps_position_pending_and_exact_cost_basis(){
         let mut s=PortfolioV2::new(2_000_000).unwrap();
