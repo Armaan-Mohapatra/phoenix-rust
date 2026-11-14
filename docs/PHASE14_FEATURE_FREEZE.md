@@ -14,7 +14,7 @@ Parent: Phase 13 `codex/phase13-collector-orchestration-v1` commit `d02fb14fbeab
 
 ## Authored validation and evidence artifacts
 
-- `scripts/validate-phoenix-locally.ps1`: operator-only `-ExecuteValidation`, exact SHA and branch, disjoint isolated clone, path/reparse protection, bounded local CPU job count/target disk, Rust 1.78 core and optional 1.91.1 pinned hft, all workspace and standalone manifests, fmt/Clippy/tests, optional bounded archive stress/BTC/multi-market replay, per-command logs/results/lockfile SHA and BLOCKED evidence gates. **Never invoked in this phase.**
+- `scripts/validate-phoenix-locally.ps1`: operator-only `-ExecuteValidation`, exact SHA and branch, disjoint isolated clone, path/reparse protection, bounded local CPU job count/target disk, Rust 1.78 core and optional 1.91.1 pinned hft, all workspace and standalone manifests, fmt/Clippy/tests, optional bounded archive stress/BTC/multi-market replay, per-command logs/results/lockfile SHA, optional sampled CPU/RAM/disk telemetry and BLOCKED evidence gates. **Never invoked in this phase.**
 - `docs/RELEASE_GATES.md`: authoritative, source-only gates; historical CI is kept separate from the current commit.
 - `docs/PHASE14_SOURCE_INVENTORY.md`: 9 root + 18 standalone packages, CLI entrypoints, dependencies, toolchains, safety limits and missing original data.
 - `docs/PHASE14_STATIC_SECURITY_AUDIT.md`: risk durability, source evidence, archive mode, filesystem/Windows, network, HFT licensing, cash units and resource-safety limitations.
