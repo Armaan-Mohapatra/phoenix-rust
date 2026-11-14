@@ -1,5 +1,6 @@
 //! Offline strategy selection, split protection, and append-only paper accounting.
 //! Historical and simulated results must never be mistaken for actual fills.
+pub mod experiments;
 use std::collections::{HashMap,HashSet};
 use phoenix_domain::{BinaryFinal,Error as DomainError,FeeRate,Money,ModeledBuyFill,Price,SettledPnl,Side,settle_binary,ONE_DOLLAR};
 
