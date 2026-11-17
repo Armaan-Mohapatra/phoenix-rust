@@ -259,8 +259,10 @@ impl Scan {
         let index = self.n;
         let invalid = |reason: String| CampaignError::InvalidCase { index, reason };
         c.validate().map_err(|e| invalid(format!("{e:?}")))?;
-        if c.strike_cents <= 0 || c.snapshots.iter().any(|s| s.reference_cents <= 0) {
-            return Err(invalid("non-positive strike or reference".into()));
+        // reference_cents == 0 means "no reference series available" (e.g. the TNEVENT capture has none);
+        // every reference-based family abstains on it. Negative values are still corrupt data.
+        if c.strike_cents <= 0 || c.snapshots.iter().any(|s| s.reference_cents < 0) {
+            return Err(invalid("non-positive strike or negative reference".into()));
         }
         if self.markets.contains(&c.market) {
             return Err(CampaignError::DuplicateMarket(c.market.clone()));

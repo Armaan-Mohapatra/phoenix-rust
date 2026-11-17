@@ -1,0 +1,16 @@
+{
+  "bytes": 283053842,
+  "cases_written": 422,
+  "depth": 10,
+  "include_partial": false,
+  "output_sha256": "736258549dcb6b857526188fa2c0a173250bf9ccb6eb5e1372cd3817afe1746c",
+  "provenance": "operator_normalized",
+  "reference_cents": "0 = not available (no spot series in this capture)",
+  "sample_ns": 500000000,
+  "schema": "phoenix-tnevent-cases-v1",
+  "seconds": 300.5681585,
+  "skipped_invalid": [],
+  "skipped_no_samples": 0,
+  "skipped_truncated_by_corpus_end": 0,
+  "snapshots_written": 642505
+}

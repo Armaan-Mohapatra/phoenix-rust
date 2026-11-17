@@ -1,0 +1,6045 @@
+{
+  "schema": "phoenix-campaign-report-v2",
+  "provenance": "OperatorNormalized",
+  "evidence_class": "Exploratory",
+  "confirmatory_eligible": false,
+  "raw_input_sha256": "736258549dcb6b857526188fa2c0a173250bf9ccb6eb5e1372cd3817afe1746c",
+  "normalized_input_sha256": "6aef5b4bcac282d7e1128dfc00e51236bd32ae3e00daa8afe493efa18a41edd1",
+  "experiment_sha256": "a964fe2b7081cea9735b7a59ffce35e00656ed1707f9d5c0dfa5eb37034dcdf9",
+  "grid_sha256": "5709a1b27f532086be02e3e08b338739466ab6a27d54f573078ed87bf79d633b",
+  "code_revision": "phoenix-campaign-0.1.0+phoenix-campaign-strategies-r2+git:bf5e4a351abeec064580f2a8fcbf9fd514281ce2",
+  "config": {
+    "discovery_fraction_permille": 500,
+    "validation_fraction_permille": 250,
+    "embargo_s": 900,
+    "top_k": 8,
+    "min_trades": 30,
+    "alpha": 0.05,
+    "max_configs": 128,
+    "threads": 2,
+    "batch_size": 64,
+    "execution": {
+      "quantity": 10,
+      "latency_ns": 250000000,
+      "max_quote_age_ns": 15000000000,
+      "fee_multiplier_permille": 1000
+    },
+    "stress_fee_permille": 1500,
+    "stress_latency_ns": 1000000000
+  },
+  "split_plan": [
+    1793372400000000000,
+    1793389950000000000,
+    1793390850000000000,
+    900000000000
+  ],
+  "split_counts": {
+    "discovery": 188,
+    "validation": 108,
+    "holdout": 108,
+    "embargoed": 18
+  },
+  "configs_tried": 101,
+  "selected_for_validation": 4,
+  "validation_alpha_per_test": 0.0125,
+  "validation_z_critical": 2.2414014778976146,
+  "holdout_evaluations": 0,
+  "holdout_alpha_per_test": null,
+  "holdout_touched": false,
+  "candidates": [],
+  "results": [
+    {
+      "id": "NoTrade-a6bf8af7d37b",
+      "config_sha256": "a6bf8af7d37b03d2feaa442cac6eaf7cac2854e0e500a36f108649ff158dac99",
+      "config": {
+        "family": "NoTrade",
+        "tte_s": 300,
+        "params": {}
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "Control": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "CoinFlip-f92b859cc9c0",
+      "config_sha256": "f92b859cc9c0b9838ec6c0c0ffb867dc51d44973bf87fbd68065b9c9d7845d47",
+      "config": {
+        "family": "CoinFlip",
+        "tte_s": 300,
+        "params": {
+          "max_ask": 9900,
+          "seed": 1
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "PriceOutOfBand": 4
+        },
+        "no_fill_reasons": {},
+        "orders": 184,
+        "full_fills": 162,
+        "partial_fills": 22,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 1711,
+        "cost_ticks": 8510160,
+        "fee_ticks": 154788,
+        "gross_ticks": -170160,
+        "net_ticks": -324948,
+        "settled_trades": 184,
+        "wins": 86,
+        "losses": 98,
+        "win_rate": 0.4673913043478261,
+        "ev_per_market_ticks": -1728.4468085106382,
+        "ev_per_trade_ticks": -1766.0217391304348,
+        "return_on_capital": -0.03750143682339467,
+        "profit_factor": 0.8539625185384927,
+        "max_drawdown_ticks": 574401,
+        "worst_trade_ticks": -90630,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -9557.29411764706,
+          "sd_ticks": 60002.68445940661,
+          "z": -0.9287604837511811
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "non-positive or untestable discovery mean"
+      }
+    },
+    {
+      "id": "Favorite-72ae1942dbeb",
+      "config_sha256": "72ae1942dbebccf3263d41ce14970eb5cb745069da7c3f7906c692b1f12c1f7f",
+      "config": {
+        "family": "Favorite",
+        "tte_s": 600,
+        "params": {
+          "max_ask": 9500,
+          "min_ask": 6500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoQuote": 3,
+          "NoView": 4,
+          "PriceOutOfBand": 70
+        },
+        "no_fill_reasons": {},
+        "orders": 111,
+        "full_fills": 102,
+        "partial_fills": 9,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 1074,
+        "cost_ticks": 8275980,
+        "fee_ticks": 128173,
+        "gross_ticks": -695980,
+        "net_ticks": -824153,
+        "settled_trades": 111,
+        "wins": 79,
+        "losses": 32,
+        "win_rate": 0.7117117117117117,
+        "ev_per_market_ticks": -4383.79255319149,
+        "ev_per_trade_ticks": -7424.801801801802,
+        "return_on_capital": -0.0980649685935037,
+        "profit_factor": 0.6532725999895664,
+        "max_drawdown_ticks": 1036136,
+        "worst_trade_ticks": -91668,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -24239.79411764706,
+          "sd_ticks": 133748.49782804798,
+          "z": -1.0567675580376792
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "non-positive or untestable discovery mean"
+      }
+    },
+    {
+      "id": "Favorite-0ac4aa8c3d33",
+      "config_sha256": "0ac4aa8c3d331215051e17edc0d3891586fcb56ad90dfecdc20c77588e3163b5",
+      "config": {
+        "family": "Favorite",
+        "tte_s": 600,
+        "params": {
+          "max_ask": 9500,
+          "min_ask": 7500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoQuote": 3,
+          "NoView": 4,
+          "PriceOutOfBand": 116
+        },
+        "no_fill_reasons": {},
+        "orders": 65,
+        "full_fills": 58,
+        "partial_fills": 7,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 619,
+        "cost_ticks": 5110680,
+        "fee_ticks": 60983,
+        "gross_ticks": -120680,
+        "net_ticks": -181663,
+        "settled_trades": 65,
+        "wins": 53,
+        "losses": 12,
+        "win_rate": 0.8153846153846154,
+        "ev_per_market_ticks": -966.2925531914893,
+        "ev_per_trade_ticks": -2794.8153846153846,
+        "return_on_capital": -0.035126612078165184,
+        "profit_factor": 0.8135426214246931,
+        "max_drawdown_ticks": 525759,
+        "worst_trade_ticks": -91668,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -5343.029411764706,
+          "sd_ticks": 76450.93793684516,
+          "z": -0.4075155689846495
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "non-positive or untestable discovery mean"
+      }
+    },
+    {
+      "id": "Favorite-100403ea9fb3",
+      "config_sha256": "100403ea9fb380636ff9621c4fbb2b7f6d3d911318e3b90e5bf63951ebcee0bd",
+      "config": {
+        "family": "Favorite",
+        "tte_s": 600,
+        "params": {
+          "max_ask": 9500,
+          "min_ask": 8500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoQuote": 3,
+          "NoView": 4,
+          "PriceOutOfBand": 155
+        },
+        "no_fill_reasons": {},
+        "orders": 26,
+        "full_fills": 20,
+        "partial_fills": 6,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 233,
+        "cost_ticks": 2077880,
+        "fee_ticks": 15616,
+        "gross_ticks": 52120,
+        "net_ticks": 36504,
+        "settled_trades": 26,
+        "wins": 24,
+        "losses": 2,
+        "win_rate": 0.9230769230769231,
+        "ev_per_market_ticks": 194.17021276595744,
+        "ev_per_trade_ticks": 1404.0,
+        "return_on_capital": 0.01743686159419459,
+        "profit_factor": 1.2002435572524108,
+        "max_drawdown_ticks": 135503,
+        "worst_trade_ticks": -91668,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": 1073.6470588235295,
+          "sd_ticks": 24476.072350151273,
+          "z": 0.25577569237751707
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 26 settled trades"
+      }
+    },
+    {
+      "id": "Favorite-745b92efc627",
+      "config_sha256": "745b92efc6273582e8db7311e38d12559c3ded6c9049723b5c53f2a849180297",
+      "config": {
+        "family": "Favorite",
+        "tte_s": 300,
+        "params": {
+          "max_ask": 9500,
+          "min_ask": 6500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "PriceOutOfBand": 82
+        },
+        "no_fill_reasons": {},
+        "orders": 106,
+        "full_fills": 97,
+        "partial_fills": 9,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 1006,
+        "cost_ticks": 8291760,
+        "fee_ticks": 96141,
+        "gross_ticks": 238240,
+        "net_ticks": 142099,
+        "settled_trades": 106,
+        "wins": 90,
+        "losses": 16,
+        "win_rate": 0.8490566037735849,
+        "ev_per_market_ticks": 755.8457446808511,
+        "ev_per_trade_ticks": 1340.5566037735848,
+        "return_on_capital": 0.016940948635421425,
+        "profit_factor": 1.1194656376239538,
+        "max_drawdown_ticks": 768549,
+        "worst_trade_ticks": -94395,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": 4179.382352941177,
+          "sd_ticks": 83893.97729747213,
+          "z": 0.2904830386543096
+        }
+      },
+      "validation": {
+        "markets": 108,
+        "abstentions": {
+          "PriceOutOfBand": 36
+        },
+        "no_fill_reasons": {},
+        "orders": 72,
+        "full_fills": 66,
+        "partial_fills": 6,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 685,
+        "cost_ticks": 5495590,
+        "fee_ticks": 72406,
+        "gross_ticks": 194410,
+        "net_ticks": 122004,
+        "settled_trades": 72,
+        "wins": 60,
+        "losses": 12,
+        "win_rate": 0.8333333333333334,
+        "ev_per_market_ticks": 1129.6666666666667,
+        "ev_per_trade_ticks": 1694.5,
+        "return_on_capital": 0.021911653672164993,
+        "profit_factor": 1.1360763340899078,
+        "max_drawdown_ticks": 233748,
+        "worst_trade_ticks": -94771,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 18,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation_fee_stress": {
+        "markets": 108,
+        "abstentions": {
+          "PriceOutOfBand": 36
+        },
+        "no_fill_reasons": {},
+        "orders": 72,
+        "full_fills": 66,
+        "partial_fills": 6,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 685,
+        "cost_ticks": 5495590,
+        "fee_ticks": 108597,
+        "gross_ticks": 194410,
+        "net_ticks": 85813,
+        "settled_trades": 72,
+        "wins": 60,
+        "losses": 12,
+        "win_rate": 0.8333333333333334,
+        "ev_per_market_ticks": 794.5648148148148,
+        "ev_per_trade_ticks": 1191.8472222222222,
+        "return_on_capital": 0.015312301320423462,
+        "profit_factor": 1.0949704286081083,
+        "max_drawdown_ticks": 246107,
+        "worst_trade_ticks": -94956,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 18,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation_latency_stress": {
+        "markets": 108,
+        "abstentions": {
+          "PriceOutOfBand": 36
+        },
+        "no_fill_reasons": {
+          "LimitNotReachable": 15
+        },
+        "orders": 72,
+        "full_fills": 54,
+        "partial_fills": 3,
+        "no_fills": 15,
+        "pending_settlement": 0,
+        "contracts_filled": 562,
+        "cost_ticks": 4485270,
+        "fee_ticks": 59786,
+        "gross_ticks": 154730,
+        "net_ticks": 94944,
+        "settled_trades": 57,
+        "wins": 47,
+        "losses": 10,
+        "win_rate": 0.8245614035087719,
+        "ev_per_market_ticks": 879.1111111111111,
+        "ev_per_trade_ticks": 1665.6842105263158,
+        "return_on_capital": 0.020889511592376418,
+        "profit_factor": 1.1264737891650605,
+        "max_drawdown_ticks": 226572,
+        "worst_trade_ticks": -94771,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 18,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "holdout": null,
+      "verdict": {
+        "RejectedValidation": "z -inf < Bonferroni critical 2.241"
+      }
+    },
+    {
+      "id": "Favorite-4d4fc2b969c0",
+      "config_sha256": "4d4fc2b969c02443bdd61affe6baa97176002fda1ac9b0440a69f4de450232e8",
+      "config": {
+        "family": "Favorite",
+        "tte_s": 300,
+        "params": {
+          "max_ask": 9500,
+          "min_ask": 7500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "PriceOutOfBand": 108
+        },
+        "no_fill_reasons": {},
+        "orders": 80,
+        "full_fills": 73,
+        "partial_fills": 7,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 758,
+        "cost_ticks": 6565660,
+        "fee_ticks": 59516,
+        "gross_ticks": 214340,
+        "net_ticks": 154824,
+        "settled_trades": 80,
+        "wins": 72,
+        "losses": 8,
+        "win_rate": 0.9,
+        "ev_per_market_ticks": 823.531914893617,
+        "ev_per_trade_ticks": 1935.3,
+        "return_on_capital": 0.023369039554571834,
+        "profit_factor": 1.2279099277072254,
+        "max_drawdown_ticks": 429009,
+        "worst_trade_ticks": -94395,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": 4553.64705882353,
+          "sd_ticks": 61943.06076667817,
+          "z": 0.4286532925151691
+        }
+      },
+      "validation": {
+        "markets": 108,
+        "abstentions": {
+          "PriceOutOfBand": 56
+        },
+        "no_fill_reasons": {},
+        "orders": 52,
+        "full_fills": 47,
+        "partial_fills": 5,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 489,
+        "cost_ticks": 4147390,
+        "fee_ticks": 43013,
+        "gross_ticks": 242610,
+        "net_ticks": 199597,
+        "settled_trades": 52,
+        "wins": 47,
+        "losses": 5,
+        "win_rate": 0.9038461538461539,
+        "ev_per_market_ticks": 1848.1203703703704,
+        "ev_per_trade_ticks": 3838.403846153846,
+        "return_on_capital": 0.04763193420775997,
+        "profit_factor": 1.4573748215501023,
+        "max_drawdown_ticks": 180664,
+        "worst_trade_ticks": -94771,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 18,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation_fee_stress": {
+        "markets": 108,
+        "abstentions": {
+          "PriceOutOfBand": 56
+        },
+        "no_fill_reasons": {},
+        "orders": 52,
+        "full_fills": 47,
+        "partial_fills": 5,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 489,
+        "cost_ticks": 4147390,
+        "fee_ticks": 64512,
+        "gross_ticks": 242610,
+        "net_ticks": 178098,
+        "settled_trades": 52,
+        "wins": 47,
+        "losses": 5,
+        "win_rate": 0.9038461538461539,
+        "ev_per_market_ticks": 1649.0555555555557,
+        "ev_per_trade_ticks": 3424.9615384615386,
+        "return_on_capital": 0.04228445960993395,
+        "profit_factor": 1.4062509979607385,
+        "max_drawdown_ticks": 181295,
+        "worst_trade_ticks": -94956,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 18,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation_latency_stress": {
+        "markets": 108,
+        "abstentions": {
+          "PriceOutOfBand": 56
+        },
+        "no_fill_reasons": {
+          "LimitNotReachable": 10
+        },
+        "orders": 52,
+        "full_fills": 40,
+        "partial_fills": 2,
+        "no_fills": 10,
+        "pending_settlement": 0,
+        "contracts_filled": 414,
+        "cost_ticks": 3501870,
+        "fee_ticks": 36744,
+        "gross_ticks": 238130,
+        "net_ticks": 201386,
+        "settled_trades": 42,
+        "wins": 38,
+        "losses": 4,
+        "win_rate": 0.9047619047619048,
+        "ev_per_market_ticks": 1864.6851851851852,
+        "ev_per_trade_ticks": 4794.9047619047615,
+        "return_on_capital": 0.05691098266157315,
+        "profit_factor": 1.5683603892438645,
+        "max_drawdown_ticks": 180664,
+        "worst_trade_ticks": -94771,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 18,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "holdout": null,
+      "verdict": {
+        "RejectedValidation": "z -inf < Bonferroni critical 2.241"
+      }
+    },
+    {
+      "id": "Favorite-e02b3b0d676c",
+      "config_sha256": "e02b3b0d676cd96182aad990c78b3332605bac2ea5137b17cd49eb4f57a0b55b",
+      "config": {
+        "family": "Favorite",
+        "tte_s": 300,
+        "params": {
+          "max_ask": 9500,
+          "min_ask": 8500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "PriceOutOfBand": 137
+        },
+        "no_fill_reasons": {},
+        "orders": 51,
+        "full_fills": 46,
+        "partial_fills": 5,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 479,
+        "cost_ticks": 4349060,
+        "fee_ticks": 27735,
+        "gross_ticks": 40940,
+        "net_ticks": 13205,
+        "settled_trades": 51,
+        "wins": 47,
+        "losses": 4,
+        "win_rate": 0.9215686274509803,
+        "ev_per_market_ticks": 70.23936170212765,
+        "ev_per_trade_ticks": 258.921568627451,
+        "return_on_capital": 0.0030170478626483535,
+        "profit_factor": 1.0366187106220606,
+        "max_drawdown_ticks": 274395,
+        "worst_trade_ticks": -94395,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": 388.38235294117646,
+          "sd_ticks": 39980.48412550781,
+          "z": 0.056643606658128856
+        }
+      },
+      "validation": {
+        "markets": 108,
+        "abstentions": {
+          "PriceOutOfBand": 78
+        },
+        "no_fill_reasons": {},
+        "orders": 30,
+        "full_fills": 25,
+        "partial_fills": 5,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 269,
+        "cost_ticks": 2400390,
+        "fee_ticks": 17954,
+        "gross_ticks": -10390,
+        "net_ticks": -28344,
+        "settled_trades": 30,
+        "wins": 27,
+        "losses": 3,
+        "win_rate": 0.9,
+        "ev_per_market_ticks": -262.44444444444446,
+        "ev_per_trade_ticks": -944.8,
+        "return_on_capital": -0.011720416946472462,
+        "profit_factor": 0.8955229382146306,
+        "max_drawdown_ticks": 194751,
+        "worst_trade_ticks": -94771,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 18,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation_fee_stress": {
+        "markets": 108,
+        "abstentions": {
+          "PriceOutOfBand": 78
+        },
+        "no_fill_reasons": {},
+        "orders": 30,
+        "full_fills": 25,
+        "partial_fills": 5,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 269,
+        "cost_ticks": 2400390,
+        "fee_ticks": 26927,
+        "gross_ticks": -10390,
+        "net_ticks": -37317,
+        "settled_trades": 30,
+        "wins": 27,
+        "losses": 3,
+        "win_rate": 0.9,
+        "ev_per_market_ticks": -345.52777777777777,
+        "ev_per_trade_ticks": -1243.9,
+        "return_on_capital": -0.01537376453096155,
+        "profit_factor": 0.862926094622392,
+        "max_drawdown_ticks": 198216,
+        "worst_trade_ticks": -94956,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 18,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation_latency_stress": {
+        "markets": 108,
+        "abstentions": {
+          "PriceOutOfBand": 78
+        },
+        "no_fill_reasons": {
+          "LimitNotReachable": 5
+        },
+        "orders": 30,
+        "full_fills": 24,
+        "partial_fills": 1,
+        "no_fills": 5,
+        "pending_settlement": 0,
+        "contracts_filled": 248,
+        "cost_ticks": 2201070,
+        "fee_ticks": 17140,
+        "gross_ticks": -21070,
+        "net_ticks": -38210,
+        "settled_trades": 25,
+        "wins": 22,
+        "losses": 3,
+        "win_rate": 0.88,
+        "ev_per_market_ticks": -353.7962962962963,
+        "ev_per_trade_ticks": -1528.4,
+        "return_on_capital": -0.017225600822284633,
+        "profit_factor": 0.8591564870583205,
+        "max_drawdown_ticks": 196263,
+        "worst_trade_ticks": -94771,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 18,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "holdout": null,
+      "verdict": {
+        "RejectedValidation": "z -inf < Bonferroni critical 2.241"
+      }
+    },
+    {
+      "id": "Favorite-38cfd1d738b7",
+      "config_sha256": "38cfd1d738b7acc1d5ef524a8b1190c99044f7380e6c40b35b5631278880dcb3",
+      "config": {
+        "family": "Favorite",
+        "tte_s": 120,
+        "params": {
+          "max_ask": 9500,
+          "min_ask": 6500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoQuote": 26,
+          "PriceOutOfBand": 112
+        },
+        "no_fill_reasons": {
+          "ExecutionRejected": 2
+        },
+        "orders": 50,
+        "full_fills": 46,
+        "partial_fills": 2,
+        "no_fills": 2,
+        "pending_settlement": 0,
+        "contracts_filled": 469,
+        "cost_ticks": 3953710,
+        "fee_ticks": 41898,
+        "gross_ticks": -163710,
+        "net_ticks": -205608,
+        "settled_trades": 48,
+        "wins": 39,
+        "losses": 9,
+        "win_rate": 0.8125,
+        "ev_per_market_ticks": -1093.659574468085,
+        "ev_per_trade_ticks": -4283.5,
+        "return_on_capital": -0.051458501434575164,
+        "profit_factor": 0.7226580625667699,
+        "max_drawdown_ticks": 494233,
+        "worst_trade_ticks": -90630,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -6047.294117647059,
+          "sd_ticks": 68808.06544405458,
+          "z": -0.512461451523453
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "non-positive or untestable discovery mean"
+      }
+    },
+    {
+      "id": "Favorite-c59920b0edb0",
+      "config_sha256": "c59920b0edb006d9c749f0e7c8fd8272514ced6b71da2f4be0788249447c7595",
+      "config": {
+        "family": "Favorite",
+        "tte_s": 120,
+        "params": {
+          "max_ask": 9500,
+          "min_ask": 7500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoQuote": 26,
+          "PriceOutOfBand": 119
+        },
+        "no_fill_reasons": {
+          "ExecutionRejected": 2
+        },
+        "orders": 43,
+        "full_fills": 39,
+        "partial_fills": 2,
+        "no_fills": 2,
+        "pending_settlement": 0,
+        "contracts_filled": 399,
+        "cost_ticks": 3447710,
+        "fee_ticks": 32092,
+        "gross_ticks": -157710,
+        "net_ticks": -189802,
+        "settled_trades": 41,
+        "wins": 34,
+        "losses": 7,
+        "win_rate": 0.8292682926829268,
+        "ev_per_market_ticks": -1009.5851063829788,
+        "ev_per_trade_ticks": -4629.317073170731,
+        "return_on_capital": -0.054543907957981516,
+        "profit_factor": 0.6791852947390661,
+        "max_drawdown_ticks": 445473,
+        "worst_trade_ticks": -90630,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -5582.411764705882,
+          "sd_ticks": 63866.76823556689,
+          "z": -0.5096668479788711
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "non-positive or untestable discovery mean"
+      }
+    },
+    {
+      "id": "Favorite-aca8e179c04c",
+      "config_sha256": "aca8e179c04c009bf26185685cc3178be0e56b36843499e1d58f843ae23f9bd7",
+      "config": {
+        "family": "Favorite",
+        "tte_s": 120,
+        "params": {
+          "max_ask": 9500,
+          "min_ask": 8500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoQuote": 26,
+          "PriceOutOfBand": 130
+        },
+        "no_fill_reasons": {
+          "ExecutionRejected": 2
+        },
+        "orders": 32,
+        "full_fills": 28,
+        "partial_fills": 2,
+        "no_fills": 2,
+        "pending_settlement": 0,
+        "contracts_filled": 289,
+        "cost_ticks": 2569710,
+        "fee_ticks": 19735,
+        "gross_ticks": -79710,
+        "net_ticks": -99445,
+        "settled_trades": 30,
+        "wins": 26,
+        "losses": 4,
+        "win_rate": 0.8666666666666667,
+        "ev_per_market_ticks": -528.9627659574468,
+        "ev_per_trade_ticks": -3314.8333333333335,
+        "return_on_capital": -0.038403982320535865,
+        "profit_factor": 0.7168067753363178,
+        "max_drawdown_ticks": 323878,
+        "worst_trade_ticks": -90630,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -2924.8529411764707,
+          "sd_ticks": 49346.579733573846,
+          "z": -0.3456101089797179
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "non-positive or untestable discovery mean"
+      }
+    },
+    {
+      "id": "Longshot-dbe3a4c7eb62",
+      "config_sha256": "dbe3a4c7eb6200d807df4c6e5d5d8ebb293b944c7518e34bc34e4767528fc3e5",
+      "config": {
+        "family": "Longshot",
+        "tte_s": 600,
+        "params": {
+          "max_ask": 1500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoQuote": 3,
+          "NoView": 4,
+          "PriceOutOfBand": 157
+        },
+        "no_fill_reasons": {},
+        "orders": 24,
+        "full_fills": 24,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 240,
+        "cost_ticks": 253900,
+        "fee_ticks": 15743,
+        "gross_ticks": -53900,
+        "net_ticks": -69643,
+        "settled_trades": 24,
+        "wins": 2,
+        "losses": 22,
+        "win_rate": 0.08333333333333333,
+        "ev_per_market_ticks": -370.4414893617021,
+        "ev_per_trade_ticks": -2901.7916666666665,
+        "return_on_capital": -0.25827853866037687,
+        "profit_factor": 0.7184195949524722,
+        "max_drawdown_ticks": 96496,
+        "worst_trade_ticks": -15893,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -2048.323529411765,
+          "sd_ticks": 24230.433545466076,
+          "z": -0.49292044001889557
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 24 settled trades"
+      }
+    },
+    {
+      "id": "Longshot-18a59422fc63",
+      "config_sha256": "18a59422fc63640488b1ba58cf34f6c4e1cb2ffecd91ec60c6868751cdd2ed84",
+      "config": {
+        "family": "Longshot",
+        "tte_s": 600,
+        "params": {
+          "max_ask": 2500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoQuote": 3,
+          "NoView": 4,
+          "PriceOutOfBand": 120
+        },
+        "no_fill_reasons": {},
+        "orders": 61,
+        "full_fills": 59,
+        "partial_fills": 2,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 602,
+        "cost_ticks": 1039000,
+        "fee_ticks": 58640,
+        "gross_ticks": -39000,
+        "net_ticks": -97640,
+        "settled_trades": 61,
+        "wins": 10,
+        "losses": 51,
+        "win_rate": 0.16393442622950818,
+        "ev_per_market_ticks": -519.3617021276596,
+        "ev_per_trade_ticks": -1600.655737704918,
+        "return_on_capital": -0.08895448416602894,
+        "profit_factor": 0.8898719157594597,
+        "max_drawdown_ticks": 285206,
+        "worst_trade_ticks": -26313,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -2871.764705882353,
+          "sd_ticks": 67366.65679519165,
+          "z": -0.24856691202924233
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "non-positive or untestable discovery mean"
+      }
+    },
+    {
+      "id": "Longshot-8e5ec9d81dea",
+      "config_sha256": "8e5ec9d81dea971b0e0aae8058e0c03807a73deceecc7ce0f14103d12890d0da",
+      "config": {
+        "family": "Longshot",
+        "tte_s": 300,
+        "params": {
+          "max_ask": 1500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "PriceOutOfBand": 90
+        },
+        "no_fill_reasons": {},
+        "orders": 98,
+        "full_fills": 87,
+        "partial_fills": 11,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 901,
+        "cost_ticks": 537670,
+        "fee_ticks": 34254,
+        "gross_ticks": -237670,
+        "net_ticks": -271924,
+        "settled_trades": 98,
+        "wins": 3,
+        "losses": 95,
+        "win_rate": 0.030612244897959183,
+        "ev_per_market_ticks": -1446.404255319149,
+        "ev_per_trade_ticks": -2774.734693877551,
+        "return_on_capital": -0.47545478070512864,
+        "profit_factor": 0.49480638431084034,
+        "max_drawdown_ticks": 362148,
+        "worst_trade_ticks": -15893,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -7997.764705882353,
+          "sd_ticks": 38201.30824830941,
+          "z": -1.220758748971781
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "non-positive or untestable discovery mean"
+      }
+    },
+    {
+      "id": "Longshot-bf45af1ca672",
+      "config_sha256": "bf45af1ca672e22026975adad861ec3de6f44120857e8d65b0912d6a7c9f3853",
+      "config": {
+        "family": "Longshot",
+        "tte_s": 300,
+        "params": {
+          "max_ask": 2500
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "PriceOutOfBand": 61
+        },
+        "no_fill_reasons": {},
+        "orders": 127,
+        "full_fills": 112,
+        "partial_fills": 15,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 1163,
+        "cost_ticks": 1072370,
+        "fee_ticks": 63933,
+        "gross_ticks": -372370,
+        "net_ticks": -436303,
+        "settled_trades": 127,
+        "wins": 7,
+        "losses": 120,
+        "win_rate": 0.05511811023622047,
+        "ev_per_market_ticks": -2320.7606382978724,
+        "ev_per_trade_ticks": -3435.4566929133857,
+        "return_on_capital": -0.38396712848597603,
+        "profit_factor": 0.5714844137489405,
+        "max_drawdown_ticks": 610027,
+        "worst_trade_ticks": -26313,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -12832.441176470587,
+          "sd_ticks": 58218.22079362459,
+          "z": -1.2852565085882195
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "non-positive or untestable discovery mean"
+      }
+    },
+    {
+      "id": "ReferenceModel-2ddb849c5540",
+      "config_sha256": "2ddb849c5540bd7bb5f46129cd1a9efecc1e0adc5d3ccf70429b0c94095f91e0",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 600,
+        "params": {
+          "min_edge": 100,
+          "window": 30
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 181,
+          "NoQuote": 3,
+          "NoView": 4
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-3d0f3d15da9e",
+      "config_sha256": "3d0f3d15da9e1574d37edba593944adf6200584805018637bbcec7ca7ae4af54",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 600,
+        "params": {
+          "min_edge": 300,
+          "window": 30
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 181,
+          "NoQuote": 3,
+          "NoView": 4
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-525ddd6215bb",
+      "config_sha256": "525ddd6215bb0c45f645e3a0c5dadca042e0971dc81b6075c7c8523b943526ef",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 600,
+        "params": {
+          "min_edge": 600,
+          "window": 30
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 181,
+          "NoQuote": 3,
+          "NoView": 4
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-1a1a95a5a629",
+      "config_sha256": "1a1a95a5a6298070094a147c42103c12441727dea14f21f00c4cc766d1962d26",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 600,
+        "params": {
+          "min_edge": 100,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 181,
+          "NoQuote": 3,
+          "NoView": 4
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-9fe5e2b2ac03",
+      "config_sha256": "9fe5e2b2ac03e536f2347d33b5244359bfba16abad637653f8269a0b048d5c97",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 600,
+        "params": {
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 181,
+          "NoQuote": 3,
+          "NoView": 4
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-4e93c5ab226c",
+      "config_sha256": "4e93c5ab226c137346dbb917461c5879707a9ea9596a661744d4a6daf5efd3f1",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 600,
+        "params": {
+          "min_edge": 600,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 181,
+          "NoQuote": 3,
+          "NoView": 4
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-04e1fb294176",
+      "config_sha256": "04e1fb294176063c28f585a820167d77fae85fc21aa89e28481827d21d3aceb8",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 300,
+        "params": {
+          "min_edge": 100,
+          "window": 30
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-e86b1cd748e1",
+      "config_sha256": "e86b1cd748e109f3c80300d2f761dbeb9fbe05cb151878e1d24a2cf4120b4b5f",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 300,
+        "params": {
+          "min_edge": 300,
+          "window": 30
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-2ec96c8ad6f2",
+      "config_sha256": "2ec96c8ad6f2450edc936d1350f3843194c7c850dfd2a2e21ba4b59d278b3ef4",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 300,
+        "params": {
+          "min_edge": 600,
+          "window": 30
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-dca360ce2d6c",
+      "config_sha256": "dca360ce2d6c5d12a8eab64e2fafffcf72231c53baf69017ea896edd8aa8cf4f",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 300,
+        "params": {
+          "min_edge": 100,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-974e085353ea",
+      "config_sha256": "974e085353ead24bc920a1afc03dcb9f9aa936cf6a14ccbe8fb2fff9b1a470d8",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 300,
+        "params": {
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-00a01afd00e4",
+      "config_sha256": "00a01afd00e4a5b574415f29d3ad25658f4b10baf1f7ebe377524cbc10d4e0e1",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 300,
+        "params": {
+          "min_edge": 600,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-d3ecc60d08f7",
+      "config_sha256": "d3ecc60d08f75f69ae013270a984bf134ea1a36f6bae622df20d5e673aa1288f",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 120,
+        "params": {
+          "min_edge": 100,
+          "window": 30
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-88ea361a9e4c",
+      "config_sha256": "88ea361a9e4cc3666f2cb4a9025b0b2a24b8610028494b0ab54b8d7b3dfe3abe",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 120,
+        "params": {
+          "min_edge": 300,
+          "window": 30
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-e41271fbcf16",
+      "config_sha256": "e41271fbcf16c7ae2ac9177bd5d1d9b79a2e03a8367999de91e3852d2b991fce",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 120,
+        "params": {
+          "min_edge": 600,
+          "window": 30
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-70d9dadbb6ab",
+      "config_sha256": "70d9dadbb6aba89df03071d04ff67ccd366e194189e57184bc4fef084012a9a8",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 120,
+        "params": {
+          "min_edge": 100,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-868777118b25",
+      "config_sha256": "868777118b2518fb50f921e64432d01498f6b9bb6f1a8e397ca81ccb1217b5db",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 120,
+        "params": {
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-bade6ba4793c",
+      "config_sha256": "bade6ba4793ca5a0335830b2c39eae4bb01fc54d271d61e966575a5931b33237",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 120,
+        "params": {
+          "min_edge": 600,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-7dfb1dd10adc",
+      "config_sha256": "7dfb1dd10adc4298df117ad59ec0e14915a9b5af522f6d01d5a61fe18d921455",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 60,
+        "params": {
+          "min_edge": 100,
+          "window": 30
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-7a17fac5bd73",
+      "config_sha256": "7a17fac5bd73ef16c61762b5692301aac48e444b1d57a6273f84c899561e8e54",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 60,
+        "params": {
+          "min_edge": 300,
+          "window": 30
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-82688ed0df8b",
+      "config_sha256": "82688ed0df8be6da9e035c9a105dd923a7b0ef39d95b45e2632d334806b1bfd7",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 60,
+        "params": {
+          "min_edge": 600,
+          "window": 30
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-3e1d4e8b0960",
+      "config_sha256": "3e1d4e8b09603275ed8156c59f61cb7abff2058886a7c1fa7246e3ffc07a8cb2",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 60,
+        "params": {
+          "min_edge": 100,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-338b7b74de82",
+      "config_sha256": "338b7b74de82b307a2d5eb6484eba62460b5925d227aba25ee842ab28ac8a884",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 60,
+        "params": {
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "ReferenceModel-df0244f2b432",
+      "config_sha256": "df0244f2b4322de1c683af5d4d92132d5bc231d8b51c495331cee81c1d841ed6",
+      "config": {
+        "family": "ReferenceModel",
+        "tte_s": 60,
+        "params": {
+          "min_edge": 600,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "Momentum-a6c15c2a2121",
+      "config_sha256": "a6c15c2a21217a17af9a232536678cd4c7ae06652c7ab1ec41525f0cfd5886ca",
+      "config": {
+        "family": "Momentum",
+        "tte_s": 300,
+        "params": {
+          "lookback_s": 30,
+          "max_ask": 7000,
+          "threshold_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "Momentum-775d6709e153",
+      "config_sha256": "775d6709e15380301e3d37bd65d5ab6a7ffaf5838c25737a03b59a884a0aeb3b",
+      "config": {
+        "family": "Momentum",
+        "tte_s": 300,
+        "params": {
+          "lookback_s": 30,
+          "max_ask": 7000,
+          "threshold_bps": 15
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "MeanReversion-74dd7b9f356c",
+      "config_sha256": "74dd7b9f356cce2d185cc0cd183bfecebe5d838bb0c8efc16b23a4331bfc6e2a",
+      "config": {
+        "family": "MeanReversion",
+        "tte_s": 300,
+        "params": {
+          "lookback_s": 60,
+          "move_ticks": 1000,
+          "reference_tolerance_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "MeanReversion-cf26b264c5c1",
+      "config_sha256": "cf26b264c5c14e8fe53cdbe3713048ef64a455beb021e5afdc3fb40f20f5b568",
+      "config": {
+        "family": "MeanReversion",
+        "tte_s": 300,
+        "params": {
+          "lookback_s": 60,
+          "move_ticks": 2000,
+          "reference_tolerance_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "Momentum-612a6a946892",
+      "config_sha256": "612a6a946892953f71997eaa863f64d57e99bda4089ddf613ed1bfcbe92b9da7",
+      "config": {
+        "family": "Momentum",
+        "tte_s": 300,
+        "params": {
+          "lookback_s": 120,
+          "max_ask": 7000,
+          "threshold_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "Momentum-4cf0bd460d36",
+      "config_sha256": "4cf0bd460d36d5f0eb506f74ed9e461f80a13fdc5d9faf921efc17bd6655004d",
+      "config": {
+        "family": "Momentum",
+        "tte_s": 300,
+        "params": {
+          "lookback_s": 120,
+          "max_ask": 7000,
+          "threshold_bps": 15
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "MeanReversion-65e4f3a4077c",
+      "config_sha256": "65e4f3a4077c33468c67e9f28666c0efcbf3334a087a78a37eae9887991f74d2",
+      "config": {
+        "family": "MeanReversion",
+        "tte_s": 300,
+        "params": {
+          "lookback_s": 150,
+          "move_ticks": 1000,
+          "reference_tolerance_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "MeanReversion-3b5befa4279d",
+      "config_sha256": "3b5befa4279d6a603f3ffb0976682f97890d30b94aacba59fd871601462638d7",
+      "config": {
+        "family": "MeanReversion",
+        "tte_s": 300,
+        "params": {
+          "lookback_s": 150,
+          "move_ticks": 2000,
+          "reference_tolerance_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "BookImbalance-8c7e6481e830",
+      "config_sha256": "8c7e6481e830d47f4a79e25ba76ca7914fcb3bfdf358d78fe453c9a8d1305b60",
+      "config": {
+        "family": "BookImbalance",
+        "tte_s": 300,
+        "params": {
+          "levels": 3,
+          "max_ask": 8000,
+          "threshold_permille": 300
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoSignal": 76,
+          "PriceOutOfBand": 34
+        },
+        "no_fill_reasons": {},
+        "orders": 78,
+        "full_fills": 61,
+        "partial_fills": 17,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 665,
+        "cost_ticks": 1738280,
+        "fee_ticks": 60340,
+        "gross_ticks": 101720,
+        "net_ticks": 41380,
+        "settled_trades": 78,
+        "wins": 20,
+        "losses": 58,
+        "win_rate": 0.2564102564102564,
+        "ev_per_market_ticks": 220.10638297872342,
+        "ev_per_trade_ticks": 530.5128205128206,
+        "return_on_capital": 0.023006527226429152,
+        "profit_factor": 1.0505777697379197,
+        "max_drawdown_ticks": 338557,
+        "worst_trade_ticks": -66593,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": 1217.0588235294117,
+          "sd_ticks": 59299.477222868714,
+          "z": 0.1196740980788988
+        }
+      },
+      "validation": {
+        "markets": 108,
+        "abstentions": {
+          "NoSignal": 50,
+          "PriceOutOfBand": 12
+        },
+        "no_fill_reasons": {},
+        "orders": 46,
+        "full_fills": 35,
+        "partial_fills": 11,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 389,
+        "cost_ticks": 1425120,
+        "fee_ticks": 52095,
+        "gross_ticks": -445120,
+        "net_ticks": -497215,
+        "settled_trades": 46,
+        "wins": 11,
+        "losses": 35,
+        "win_rate": 0.2391304347826087,
+        "ev_per_market_ticks": -4603.842592592592,
+        "ev_per_trade_ticks": -10809.021739130434,
+        "return_on_capital": -0.336589460572767,
+        "profit_factor": 0.48338507638854256,
+        "max_drawdown_ticks": 536669,
+        "worst_trade_ticks": -69524,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 18,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation_fee_stress": {
+        "markets": 108,
+        "abstentions": {
+          "NoSignal": 50,
+          "PriceOutOfBand": 12
+        },
+        "no_fill_reasons": {},
+        "orders": 46,
+        "full_fills": 35,
+        "partial_fills": 11,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 389,
+        "cost_ticks": 1425120,
+        "fee_ticks": 78131,
+        "gross_ticks": -445120,
+        "net_ticks": -523251,
+        "settled_trades": 46,
+        "wins": 11,
+        "losses": 35,
+        "win_rate": 0.2391304347826087,
+        "ev_per_market_ticks": -4844.916666666667,
+        "ev_per_trade_ticks": -11375.021739130434,
+        "return_on_capital": -0.34807959549004125,
+        "profit_factor": 0.46683370643863936,
+        "max_drawdown_ticks": 561262,
+        "worst_trade_ticks": -70285,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 18,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation_latency_stress": {
+        "markets": 108,
+        "abstentions": {
+          "NoSignal": 50,
+          "PriceOutOfBand": 12
+        },
+        "no_fill_reasons": {
+          "LimitNotReachable": 22
+        },
+        "orders": 46,
+        "full_fills": 23,
+        "partial_fills": 1,
+        "no_fills": 22,
+        "pending_settlement": 0,
+        "contracts_filled": 238,
+        "cost_ticks": 896920,
+        "fee_ticks": 30902,
+        "gross_ticks": -396920,
+        "net_ticks": -427822,
+        "settled_trades": 24,
+        "wins": 5,
+        "losses": 19,
+        "win_rate": 0.20833333333333334,
+        "ev_per_market_ticks": -3961.314814814815,
+        "ev_per_trade_ticks": -17825.916666666668,
+        "return_on_capital": -0.4611035306341087,
+        "profit_factor": 0.27184191714606665,
+        "max_drawdown_ticks": 428235,
+        "worst_trade_ticks": -62666,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 18,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "holdout": null,
+      "verdict": {
+        "RejectedValidation": "z -inf < Bonferroni critical 2.241"
+      }
+    },
+    {
+      "id": "BookImbalance-bb0e0f8e9bcd",
+      "config_sha256": "bb0e0f8e9bcddeb2eaca6951826beba18773b2b8eef02ffa0d7f84cab349f144",
+      "config": {
+        "family": "BookImbalance",
+        "tte_s": 300,
+        "params": {
+          "levels": 3,
+          "max_ask": 8000,
+          "threshold_permille": 600
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoSignal": 126,
+          "PriceOutOfBand": 17
+        },
+        "no_fill_reasons": {},
+        "orders": 45,
+        "full_fills": 35,
+        "partial_fills": 10,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 378,
+        "cost_ticks": 996820,
+        "fee_ticks": 33535,
+        "gross_ticks": 23180,
+        "net_ticks": -10355,
+        "settled_trades": 45,
+        "wins": 11,
+        "losses": 34,
+        "win_rate": 0.24444444444444444,
+        "ev_per_market_ticks": -55.079787234042556,
+        "ev_per_trade_ticks": -230.11111111111111,
+        "return_on_capital": -0.01004993424596377,
+        "profit_factor": 0.9782201291858682,
+        "max_drawdown_ticks": 195618,
+        "worst_trade_ticks": -65613,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -304.55882352941177,
+          "sd_ticks": 46040.213944024916,
+          "z": -0.03857210245177739
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "non-positive or untestable discovery mean"
+      }
+    },
+    {
+      "id": "VolRegimeModel-de4fa0c0238c",
+      "config_sha256": "de4fa0c0238c3b1e7dc4606aeb02fabe47cf589786a66fdde4a51394b36e9560",
+      "config": {
+        "family": "VolRegimeModel",
+        "tte_s": 300,
+        "params": {
+          "high_regime": 0,
+          "min_edge": 300,
+          "sigma_threshold_ppm": 30,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "VolRegimeModel-53144113536b",
+      "config_sha256": "53144113536bd186d4d8dc989de070ecda41b4baa4be984b73e0e7d765d5ec6b",
+      "config": {
+        "family": "VolRegimeModel",
+        "tte_s": 300,
+        "params": {
+          "high_regime": 0,
+          "min_edge": 300,
+          "sigma_threshold_ppm": 60,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "VolRegimeModel-aece643b08d0",
+      "config_sha256": "aece643b08d02b4112bcadc093b9b3290f1294a129410af06e1dffc34136cb17",
+      "config": {
+        "family": "VolRegimeModel",
+        "tte_s": 300,
+        "params": {
+          "high_regime": 1,
+          "min_edge": 300,
+          "sigma_threshold_ppm": 30,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "VolRegimeModel-dcba08dd3daa",
+      "config_sha256": "dcba08dd3daa0f6e7f444ed15b48f1b0170bc2d1a9c877c4bb832770242f337c",
+      "config": {
+        "family": "VolRegimeModel",
+        "tte_s": 300,
+        "params": {
+          "high_regime": 1,
+          "min_edge": 300,
+          "sigma_threshold_ppm": 60,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadLag-ea4210c6ab52",
+      "config_sha256": "ea4210c6ab5210e68e53d962a73006f683192ae20477a85c69b6b13a3558bf0b",
+      "config": {
+        "family": "LeadLag",
+        "tte_s": 300,
+        "params": {
+          "divergence_bps": 5,
+          "lookback_s": 30,
+          "max_ask": 8000
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadLag-1e9baa5c47ee",
+      "config_sha256": "1e9baa5c47eed74e1cdf7182fc47b1f7acd35872987d7366adf59b4782ff132c",
+      "config": {
+        "family": "LeadLag",
+        "tte_s": 300,
+        "params": {
+          "divergence_bps": 10,
+          "lookback_s": 30,
+          "max_ask": 8000
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadLag-b7d26e3a4a12",
+      "config_sha256": "b7d26e3a4a125e40ade27362c1fb1d9c2096fb4f63d25b755e32c20133bfe694",
+      "config": {
+        "family": "LeadLag",
+        "tte_s": 300,
+        "params": {
+          "divergence_bps": 5,
+          "lookback_s": 60,
+          "max_ask": 8000
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadLag-8dd1b9c12842",
+      "config_sha256": "8dd1b9c12842815ac9df228e015b7d20da9ad19bb079074580c761488dd637ff",
+      "config": {
+        "family": "LeadLag",
+        "tte_s": 300,
+        "params": {
+          "divergence_bps": 10,
+          "lookback_s": 60,
+          "max_ask": 8000
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "PerpBasis-daff4c9fa4e0",
+      "config_sha256": "daff4c9fa4e0c15321d7a918260bf7c0d9ad6db9ec1941ac327c7ef6baaf4dfd",
+      "config": {
+        "family": "PerpBasis",
+        "tte_s": 300,
+        "params": {
+          "max_ask": 8000,
+          "threshold_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "PerpBasis-bc3b472e0ada",
+      "config_sha256": "bc3b472e0ada4e0bd4e78fe783cc7650a714f502a2779ffa4e662cea2fdf830c",
+      "config": {
+        "family": "PerpBasis",
+        "tte_s": 300,
+        "params": {
+          "max_ask": 8000,
+          "threshold_bps": 15
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "Ensemble-4cc7273aa5be",
+      "config_sha256": "4cc7273aa5be8bc239f0f2c6eaca7fbcbabb09b84b57e28ff761cf8998c43448",
+      "config": {
+        "family": "Ensemble",
+        "tte_s": 300,
+        "params": {
+          "need": 2
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoConsensus": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "Ensemble-902a4c093f8a",
+      "config_sha256": "902a4c093f8aa57f4800794d6ce26321344c3a7aa077c4183e69bd487ca84fca",
+      "config": {
+        "family": "Ensemble",
+        "tte_s": 300,
+        "params": {
+          "need": 3
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoConsensus": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "InvertedMomentum-08d629cbb084",
+      "config_sha256": "08d629cbb08465f716c746205a3ec436c673ea06db3820e140bbab64b7dd0ae7",
+      "config": {
+        "family": "InvertedMomentum",
+        "tte_s": 300,
+        "params": {
+          "lookback_s": 120,
+          "max_ask": 7000,
+          "threshold_bps": 15
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LiquidityFilteredModel-37ed7e781e4c",
+      "config_sha256": "37ed7e781e4c7d7c1daa1831fd9d9412d13b00fa37245b24098951089d233022",
+      "config": {
+        "family": "LiquidityFilteredModel",
+        "tte_s": 300,
+        "params": {
+          "max_spread": 200,
+          "min_depth": 20,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 182,
+          "SpreadTooWide": 6
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LiquidityFilteredModel-3d1854a80860",
+      "config_sha256": "3d1854a80860a98afee827dd50be5abbd8630c15e24060903b72e73145357039",
+      "config": {
+        "family": "LiquidityFilteredModel",
+        "tte_s": 300,
+        "params": {
+          "max_spread": 200,
+          "min_depth": 50,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 182,
+          "SpreadTooWide": 6
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LiquidityFilteredModel-6551445a0b9b",
+      "config_sha256": "6551445a0b9bb2b86360fbe4bebd76b53b24c1a2552a1ea710a8a2abcb754e78",
+      "config": {
+        "family": "LiquidityFilteredModel",
+        "tte_s": 300,
+        "params": {
+          "max_spread": 400,
+          "min_depth": 20,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LiquidityFilteredModel-f193ab9d89d9",
+      "config_sha256": "f193ab9d89d9f3c93cffda4df9aa9afc6a3ee5e5c08b594cb23ab2e49e34b9e1",
+      "config": {
+        "family": "LiquidityFilteredModel",
+        "tte_s": 300,
+        "params": {
+          "max_spread": 400,
+          "min_depth": 50,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadAdjustedModel-1fe9db3f8c88",
+      "config_sha256": "1fe9db3f8c8812ac45f12e3b8abce22021555660804bfe1673a3e9d65fc1a6fc",
+      "config": {
+        "family": "LeadAdjustedModel",
+        "tte_s": 300,
+        "params": {
+          "beta_permille": 500,
+          "lookback_s": 30,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadAdjustedModel-39d5f487a061",
+      "config_sha256": "39d5f487a0612a52373f5ae263f792d1582f91800fdf4ba082e962850dee386f",
+      "config": {
+        "family": "LeadAdjustedModel",
+        "tte_s": 300,
+        "params": {
+          "beta_permille": 500,
+          "lookback_s": 60,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadAdjustedModel-bdc3fcb700d2",
+      "config_sha256": "bdc3fcb700d2134f876e804085109b3182d3fdc09e32c013013734c7dfb37c6c",
+      "config": {
+        "family": "LeadAdjustedModel",
+        "tte_s": 300,
+        "params": {
+          "beta_permille": 800,
+          "lookback_s": 30,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadAdjustedModel-c406f2383a95",
+      "config_sha256": "c406f2383a95ecbcf5c8567d4ad55b6927f4128f6334d7c26e5bc24bb519b2d5",
+      "config": {
+        "family": "LeadAdjustedModel",
+        "tte_s": 300,
+        "params": {
+          "beta_permille": 800,
+          "lookback_s": 60,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "Momentum-fd5cea402738",
+      "config_sha256": "fd5cea40273869b9d4e6a8e790feec51264b70d77fafca688213087621f68d64",
+      "config": {
+        "family": "Momentum",
+        "tte_s": 120,
+        "params": {
+          "lookback_s": 30,
+          "max_ask": 7000,
+          "threshold_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "Momentum-8c2a64496586",
+      "config_sha256": "8c2a64496586fa26935f0b24bc3b6eee27ad6a0301941902263c387dfbf4bb7c",
+      "config": {
+        "family": "Momentum",
+        "tte_s": 120,
+        "params": {
+          "lookback_s": 30,
+          "max_ask": 7000,
+          "threshold_bps": 15
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "MeanReversion-02abd6f68bac",
+      "config_sha256": "02abd6f68baca2c06f071230091e92f5b879131785ef68b34b60b16e2ed41881",
+      "config": {
+        "family": "MeanReversion",
+        "tte_s": 120,
+        "params": {
+          "lookback_s": 60,
+          "move_ticks": 1000,
+          "reference_tolerance_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 162,
+          "NoQuote": 26
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "MeanReversion-9be929a9bca7",
+      "config_sha256": "9be929a9bca750d7b22c2d06f011c20609b995bda4290947aee206f47df1dd2b",
+      "config": {
+        "family": "MeanReversion",
+        "tte_s": 120,
+        "params": {
+          "lookback_s": 60,
+          "move_ticks": 2000,
+          "reference_tolerance_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 162,
+          "NoQuote": 26
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "Momentum-a2c3fb261f2a",
+      "config_sha256": "a2c3fb261f2ab371666c6e4deee326872284f934f9d48c6b9d8729649ab2afda",
+      "config": {
+        "family": "Momentum",
+        "tte_s": 120,
+        "params": {
+          "lookback_s": 120,
+          "max_ask": 7000,
+          "threshold_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "Momentum-0f7bf6280e1d",
+      "config_sha256": "0f7bf6280e1d0b4fddbe765056b25148fa20be748ee5ff485ecb867a8df86131",
+      "config": {
+        "family": "Momentum",
+        "tte_s": 120,
+        "params": {
+          "lookback_s": 120,
+          "max_ask": 7000,
+          "threshold_bps": 15
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "MeanReversion-1c0ff01864ca",
+      "config_sha256": "1c0ff01864cacef8234b9a00dc299d877db9c0cf00554541db04b6df3312746e",
+      "config": {
+        "family": "MeanReversion",
+        "tte_s": 120,
+        "params": {
+          "lookback_s": 150,
+          "move_ticks": 1000,
+          "reference_tolerance_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 162,
+          "NoQuote": 26
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "MeanReversion-f62ae83dd24b",
+      "config_sha256": "f62ae83dd24b4753d78b9c23a720364cd6c40e7b56e319c553fa14660b050008",
+      "config": {
+        "family": "MeanReversion",
+        "tte_s": 120,
+        "params": {
+          "lookback_s": 150,
+          "move_ticks": 2000,
+          "reference_tolerance_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 162,
+          "NoQuote": 26
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "BookImbalance-e1a1595d240a",
+      "config_sha256": "e1a1595d240aa7f2d5e2476cba8312f07fbd078c3b2349768ea04a135635c275",
+      "config": {
+        "family": "BookImbalance",
+        "tte_s": 120,
+        "params": {
+          "levels": 3,
+          "max_ask": 8000,
+          "threshold_permille": 300
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoQuote": 26,
+          "NoSignal": 47,
+          "PriceOutOfBand": 27
+        },
+        "no_fill_reasons": {
+          "ExecutionRejected": 1,
+          "LimitNotReachable": 3
+        },
+        "orders": 88,
+        "full_fills": 73,
+        "partial_fills": 11,
+        "no_fills": 4,
+        "pending_settlement": 0,
+        "contracts_filled": 762,
+        "cost_ticks": 781410,
+        "fee_ticks": 29336,
+        "gross_ticks": -181410,
+        "net_ticks": -210746,
+        "settled_trades": 84,
+        "wins": 6,
+        "losses": 78,
+        "win_rate": 0.07142857142857142,
+        "ev_per_market_ticks": -1120.9893617021276,
+        "ev_per_trade_ticks": -2508.8809523809523,
+        "return_on_capital": -0.2599408446048454,
+        "profit_factor": 0.5897424916097583,
+        "max_drawdown_ticks": 311431,
+        "worst_trade_ticks": -75347,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -6198.411764705882,
+          "sd_ticks": 35001.128967175144,
+          "z": -1.0326135725032914
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "non-positive or untestable discovery mean"
+      }
+    },
+    {
+      "id": "BookImbalance-47cecb07c1a1",
+      "config_sha256": "47cecb07c1a10eff2f226c6dc72f396361b717d9d6fdcf9b36fdfa43f62503f6",
+      "config": {
+        "family": "BookImbalance",
+        "tte_s": 120,
+        "params": {
+          "levels": 3,
+          "max_ask": 8000,
+          "threshold_permille": 600
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoQuote": 26,
+          "NoSignal": 101,
+          "PriceOutOfBand": 13
+        },
+        "no_fill_reasons": {
+          "ExecutionRejected": 1
+        },
+        "orders": 48,
+        "full_fills": 41,
+        "partial_fills": 6,
+        "no_fills": 1,
+        "pending_settlement": 0,
+        "contracts_filled": 432,
+        "cost_ticks": 379310,
+        "fee_ticks": 13160,
+        "gross_ticks": -279310,
+        "net_ticks": -292470,
+        "settled_trades": 47,
+        "wins": 1,
+        "losses": 46,
+        "win_rate": 0.02127659574468085,
+        "ev_per_market_ticks": -1555.6914893617022,
+        "ev_per_trade_ticks": -6222.765957446809,
+        "return_on_capital": -0.7452034550411496,
+        "profit_factor": 0.060639152079653126,
+        "max_drawdown_ticks": 292470,
+        "worst_trade_ticks": -75347,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": {
+          "clusters": 34,
+          "mean_ticks": -8602.058823529413,
+          "sd_ticks": 18113.388982205328,
+          "z": -2.769122401440459
+        }
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "non-positive or untestable discovery mean"
+      }
+    },
+    {
+      "id": "VolRegimeModel-0e10ed372db3",
+      "config_sha256": "0e10ed372db33f83e0d5ffa3086e63c83591794892f369a3bca037e035faef3d",
+      "config": {
+        "family": "VolRegimeModel",
+        "tte_s": 120,
+        "params": {
+          "high_regime": 0,
+          "min_edge": 300,
+          "sigma_threshold_ppm": 30,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "VolRegimeModel-215ef8dec9df",
+      "config_sha256": "215ef8dec9dffd93d9842209cc5cd56a33fc731d066b6964ce5f172b8ba8cbb8",
+      "config": {
+        "family": "VolRegimeModel",
+        "tte_s": 120,
+        "params": {
+          "high_regime": 0,
+          "min_edge": 300,
+          "sigma_threshold_ppm": 60,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "VolRegimeModel-57ec5042f5c2",
+      "config_sha256": "57ec5042f5c2b24a6bfb0a85b948cd8c4c9211d25fc4f930a6cc201845e1613a",
+      "config": {
+        "family": "VolRegimeModel",
+        "tte_s": 120,
+        "params": {
+          "high_regime": 1,
+          "min_edge": 300,
+          "sigma_threshold_ppm": 30,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "VolRegimeModel-14b08b3c65a0",
+      "config_sha256": "14b08b3c65a0916bd73fb30df1026e3524cacd98d8818d0e306b67b1781f2588",
+      "config": {
+        "family": "VolRegimeModel",
+        "tte_s": 120,
+        "params": {
+          "high_regime": 1,
+          "min_edge": 300,
+          "sigma_threshold_ppm": 60,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadLag-02945e14b01a",
+      "config_sha256": "02945e14b01a6405cea68cdb766551261bd9c42eea9793d4d69b1cfa3b4c7462",
+      "config": {
+        "family": "LeadLag",
+        "tte_s": 120,
+        "params": {
+          "divergence_bps": 5,
+          "lookback_s": 30,
+          "max_ask": 8000
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadLag-130bf0d69600",
+      "config_sha256": "130bf0d69600d67b1da1edbd060d2f894fe25993ed788542ab70b77358ab3ac4",
+      "config": {
+        "family": "LeadLag",
+        "tte_s": 120,
+        "params": {
+          "divergence_bps": 10,
+          "lookback_s": 30,
+          "max_ask": 8000
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadLag-8b2c48c14ac0",
+      "config_sha256": "8b2c48c14ac0c2f0324159d5acc134fc7a123580f087c7212fe9c00d29950b87",
+      "config": {
+        "family": "LeadLag",
+        "tte_s": 120,
+        "params": {
+          "divergence_bps": 5,
+          "lookback_s": 60,
+          "max_ask": 8000
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadLag-20ec3abb3a59",
+      "config_sha256": "20ec3abb3a592bebefde00d37d6fd05a3d89d05f4c7fac90cc64a5885b276562",
+      "config": {
+        "family": "LeadLag",
+        "tte_s": 120,
+        "params": {
+          "divergence_bps": 10,
+          "lookback_s": 60,
+          "max_ask": 8000
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "PerpBasis-a621dbe138e7",
+      "config_sha256": "a621dbe138e71f32b76107bf8f8972424ec4452be76fc2158c6b722f10add614",
+      "config": {
+        "family": "PerpBasis",
+        "tte_s": 120,
+        "params": {
+          "max_ask": 8000,
+          "threshold_bps": 5
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "PerpBasis-3e8e1f893c83",
+      "config_sha256": "3e8e1f893c83c632d62fb0492ba75bc6d029cff9d7f0dd0dae58b229783a2104",
+      "config": {
+        "family": "PerpBasis",
+        "tte_s": 120,
+        "params": {
+          "max_ask": 8000,
+          "threshold_bps": 15
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "Ensemble-509485ea80ba",
+      "config_sha256": "509485ea80bafa53b7ba3df388eba0db9c434c1983ed27c6e904d995a91980c2",
+      "config": {
+        "family": "Ensemble",
+        "tte_s": 120,
+        "params": {
+          "need": 2
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoConsensus": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "Ensemble-558729925438",
+      "config_sha256": "558729925438469af67f8dbc62644ad8ee6ad57510ad1c5b1bae8b8f8a894d4e",
+      "config": {
+        "family": "Ensemble",
+        "tte_s": 120,
+        "params": {
+          "need": 3
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "NoConsensus": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "InvertedMomentum-9010a4e24269",
+      "config_sha256": "9010a4e24269aff29dce26d3879c4209325c1adcccfe365e6a13573303b177cf",
+      "config": {
+        "family": "InvertedMomentum",
+        "tte_s": 120,
+        "params": {
+          "lookback_s": 120,
+          "max_ask": 7000,
+          "threshold_bps": 15
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "MissingFeature": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LiquidityFilteredModel-9699a16ab036",
+      "config_sha256": "9699a16ab036c3415814d1d35501d9d85c6ad44c4f07ead92f1c27ccbb96afd8",
+      "config": {
+        "family": "LiquidityFilteredModel",
+        "tte_s": 120,
+        "params": {
+          "max_spread": 200,
+          "min_depth": 20,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 151,
+          "NoQuote": 26,
+          "SpreadTooWide": 11
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LiquidityFilteredModel-a0c03f2b502e",
+      "config_sha256": "a0c03f2b502e56477cac42fe389a9d182503bbc1732cf0742f6be7b38255b893",
+      "config": {
+        "family": "LiquidityFilteredModel",
+        "tte_s": 120,
+        "params": {
+          "max_spread": 200,
+          "min_depth": 50,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 151,
+          "NoQuote": 26,
+          "SpreadTooWide": 11
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LiquidityFilteredModel-b6fc3a1ed036",
+      "config_sha256": "b6fc3a1ed03681778e9d95b544ccf871f14bc84b0ab20cbcc35a9f136b51ed55",
+      "config": {
+        "family": "LiquidityFilteredModel",
+        "tte_s": 120,
+        "params": {
+          "max_spread": 400,
+          "min_depth": 20,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 161,
+          "NoQuote": 26,
+          "SpreadTooWide": 1
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LiquidityFilteredModel-11b11838a44f",
+      "config_sha256": "11b11838a44f25826af49d2a242204b798bf9909e4fa35cc8771a53e827d0902",
+      "config": {
+        "family": "LiquidityFilteredModel",
+        "tte_s": 120,
+        "params": {
+          "max_spread": 400,
+          "min_depth": 50,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 161,
+          "NoQuote": 26,
+          "SpreadTooWide": 1
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadAdjustedModel-d11a0be246ed",
+      "config_sha256": "d11a0be246ed095bbe30e53a70df92dfd1631740df70e398f87161df81b3315d",
+      "config": {
+        "family": "LeadAdjustedModel",
+        "tte_s": 120,
+        "params": {
+          "beta_permille": 500,
+          "lookback_s": 30,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadAdjustedModel-75c8826efe8f",
+      "config_sha256": "75c8826efe8fae2d082c0a415336d00a92fcd007b7a953eeaa3c254ce06c6b36",
+      "config": {
+        "family": "LeadAdjustedModel",
+        "tte_s": 120,
+        "params": {
+          "beta_permille": 500,
+          "lookback_s": 60,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadAdjustedModel-949fb303da21",
+      "config_sha256": "949fb303da21846cde60f0573a3f339c2acb561264ca2913cc896ddfc95f2a82",
+      "config": {
+        "family": "LeadAdjustedModel",
+        "tte_s": 120,
+        "params": {
+          "beta_permille": 800,
+          "lookback_s": 30,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    },
+    {
+      "id": "LeadAdjustedModel-5eeaa857d0b6",
+      "config_sha256": "5eeaa857d0b6852654202ff48e447b4c97527c523fdab5b73999774765310166",
+      "config": {
+        "family": "LeadAdjustedModel",
+        "tte_s": 120,
+        "params": {
+          "beta_permille": 800,
+          "lookback_s": 60,
+          "min_edge": 300,
+          "window": 90
+        }
+      },
+      "discovery": {
+        "markets": 188,
+        "abstentions": {
+          "InsufficientHistory": 188
+        },
+        "no_fill_reasons": {},
+        "orders": 0,
+        "full_fills": 0,
+        "partial_fills": 0,
+        "no_fills": 0,
+        "pending_settlement": 0,
+        "contracts_filled": 0,
+        "cost_ticks": 0,
+        "fee_ticks": 0,
+        "gross_ticks": 0,
+        "net_ticks": 0,
+        "settled_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": null,
+        "ev_per_market_ticks": 0.0,
+        "ev_per_trade_ticks": null,
+        "return_on_capital": null,
+        "profit_factor": null,
+        "max_drawdown_ticks": 0,
+        "worst_trade_ticks": null,
+        "brier_model": null,
+        "brier_market_same_rows": null,
+        "forecast_rows": 0,
+        "clusters": 34,
+        "arithmetic_overflow": false,
+        "cluster_order_violation": false,
+        "test": null
+      },
+      "validation": null,
+      "validation_fee_stress": null,
+      "validation_latency_stress": null,
+      "holdout": null,
+      "verdict": {
+        "RejectedDiscovery": "only 0 settled trades"
+      }
+    }
+  ],
+  "resources": {
+    "cases": 422,
+    "snapshots": 642505,
+    "passes": 3,
+    "raw_bytes_read": 283053842,
+    "cache_bytes_read": 1118746088,
+    "case_cache": "hit",
+    "decisions_evaluated": 20284,
+    "wall_ms": 2710,
+    "decisions_per_second": 7484.870848708487,
+    "threads": 2,
+    "batch_size": 64
+  },
+  "limitations": [
+    "All fills are modeled taker fills against the book at arrival; no queue or maker model.",
+    "Positions are held to expiration; no early exit is modeled.",
+    "Cluster z-test assumes independence across clusters (time windows).",
+    "PassedAllGates is meaningful only as qualified by evidence_class.",
+    "Synthetic provenance results validate the engine, never real-market edge."
+  ]
+}

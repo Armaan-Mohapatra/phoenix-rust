@@ -1,0 +1,24 @@
+{
+ "frozen_sha256": "362038d643fbece296debc52a677c257894d7719517e04ac377d23dfc11e4d6c",
+ "observations": 25000,
+ "strategies": {
+  "market_only_p0_v2": {
+   "rec_match": 25000,
+   "p_match": 25000,
+   "edge_match": 25000,
+   "trades_python": 0,
+   "trades_rust": 0,
+   "mismatches": [],
+   "all_match": true
+  },
+  "book_flow_imbalance_p0_v3 (book-only subset)": {
+   "rec_match": 25000,
+   "p_match": 25000,
+   "edge_match": 25000,
+   "trades_python": 5313,
+   "trades_rust": 5313,
+   "mismatches": [],
+   "all_match": true
+  }
+ }
+}

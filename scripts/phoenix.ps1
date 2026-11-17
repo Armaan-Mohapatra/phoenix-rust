@@ -3,12 +3,17 @@
 #   .\scripts\phoenix.ps1 storage-audit [-Roots a,b]      # inventory + SHA-256 duplicates
 #   .\scripts\phoenix.ps1 cleanup [-Apply]                # dry-run unless -Apply; workspace caches only
 #   .\scripts\phoenix.ps1 research -Cases cases.jsonl [-Registry] [-- extra campaign args]
+#   .\scripts\phoenix.ps1 manifest [-Root E:\TradingNextData\kalshi\raw]   # decode + verify collector segments -> catalog\tnevent-<stamp>
+#   .\scripts\phoenix.ps1 cases -Manifest <catalog dir> [-Partial]          # verified books -> campaign cases.jsonl
 # Research root: $env:PHOENIX_LAB, default E:\PhoenixLab. Never starts services or schedules jobs.
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('doctor', 'storage-audit', 'cleanup', 'research')] [string] $Command,
+    [ValidateSet('doctor', 'storage-audit', 'cleanup', 'research', 'manifest', 'cases')] [string] $Command,
     [string[]] $Roots,
     [string] $Cases,
+    [string] $Root = 'E:\TradingNextData\kalshi\raw',
+    [string] $Manifest,
+    [switch] $Partial,
     [switch] $Apply,
     [switch] $Registry,
     [Parameter(ValueFromRemainingArguments)] [string[]] $Rest
@@ -20,6 +25,7 @@ $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
 $storage = Join-Path $PSScriptRoot 'phoenix_storage.py'
 $target = Join-Path $lab 'cache\build\target'
 $exe = Join-Path $target 'release\phoenix-campaign.exe'
+$tnexe = Join-Path $target 'release\phoenix-tnevent.exe'
 # Original evidence and live runtimes: campaign outputs are refused under these.
 if (-not $env:PHOENIX_PROTECTED_ROOTS) {
     $env:PHOENIX_PROTECTED_ROOTS = 'E:\KalshiData;E:\TradingNextData;C:\PhoenixResearchLab;E:\PhoenixResearchLab;E:\PhoenixTooling;E:\SwiftAutoTrader'
@@ -47,6 +53,16 @@ switch ($Command) {
     }
     'cleanup' {
         if ($Apply) { python $storage cleanup --workspace $lab --apply } else { python $storage cleanup --workspace $lab }
+    }
+    'manifest' {
+        if (-not (Test-Path $tnexe)) { $env:CARGO_TARGET_DIR = $target; cargo build --release -p phoenix-tnevent --manifest-path (Join-Path $repo 'Cargo.toml') }
+        & $tnexe manifest --root $Root --out (Join-Path $lab "catalog\tnevent-$stamp") @Rest
+    }
+    'cases' {
+        if (-not $Manifest) { throw '-Manifest <catalog dir containing markets.jsonl> is required' }
+        $a = @('cases', '--root', $Root, '--manifest', (Join-Path $Manifest 'markets.jsonl'), '--out', (Join-Path $lab "derived\cases-$stamp"))
+        if ($Partial) { $a += '--partial' }
+        & $tnexe @a @Rest
     }
     'research' {
         if (-not $Cases) { throw "-Cases cases.jsonl is required" }
