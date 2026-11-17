@@ -1,0 +1,7 @@
+{
+ "T_utc": "2026-10-31T01:00:00Z",
+ "A_markets": 422,
+ "B_markets": 229,
+ "A_last_segment": 345,
+ "rule": "chronological: A = executable_verified markets closing before T (first ~65%); B untouched"
+}
