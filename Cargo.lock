@@ -79,6 +79,18 @@ name = "phoenix-archive"
 version = "0.1.0"
 
 [[package]]
+name = "phoenix-campaign"
+version = "0.1.0"
+dependencies = [
+ "phoenix-domain",
+ "phoenix-research",
+ "phoenix-sim",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "phoenix-cli"
 version = "0.1.0"
 dependencies = [
