@@ -595,6 +595,14 @@ pub struct ClusterInterval {
     pub upper_mean_micro_usd: i128,
     pub multiple_comparisons: u32,
     pub adjusted_alpha_millionths: u32,
+    /// Two-sided coverage actually used for the bounds, in millionths:
+    /// 1 - adjusted alpha. (Before Phase 17 the bounds were always 95%
+    /// even though an adjusted alpha was reported.)
+    pub interval_coverage_millionths: u32,
+    /// False when `resamples` is too small to place each tail at the
+    /// adjusted alpha (fewer than 10 draws per tail); the bounds are then
+    /// the sample extremes and understate the required width.
+    pub tail_resolution_sufficient: bool,
     pub confirmatory_significance: bool,
 }
 /// Event-cluster block bootstrap (resample *entire event sums*, not trades),
@@ -648,7 +656,11 @@ pub fn clustered_bootstrap(
         draws.push(total / v.len() as i128);
     }
     draws.sort_unstable();
-    let index_low = resamples / 40;
+    // Bonferroni-adjusted two-sided interval: alpha_adj = 0.05 / m, with
+    // alpha_adj / 2 in each tail (computed in integer millionths).
+    let alpha_adj = 50_000u64 / u64::from(comparison_count);
+    let tail_draws = resamples as u64 * alpha_adj / 2 / 1_000_000;
+    let index_low = tail_draws as usize;
     let index_high = resamples - 1 - index_low;
     Ok(ClusterInterval {
         unique_clusters: v.len(),
@@ -657,7 +669,9 @@ pub fn clustered_bootstrap(
         lower_mean_micro_usd: draws[index_low],
         upper_mean_micro_usd: draws[index_high],
         multiple_comparisons: comparison_count,
-        adjusted_alpha_millionths: 50_000 / comparison_count,
+        adjusted_alpha_millionths: alpha_adj as u32,
+        interval_coverage_millionths: (1_000_000 - alpha_adj) as u32,
+        tail_resolution_sufficient: tail_draws >= 10,
         confirmatory_significance: false,
     })
 }
@@ -764,6 +778,42 @@ mod tests {
         assert!(!a.confirmatory_significance);
         assert_eq!(a.adjusted_alpha_millionths, 12_500);
         assert!(clustered_bootstrap(&sample[..4], 42, 300, 4).is_err());
+        assert_eq!(a.interval_coverage_millionths, 987_500);
+        assert!(
+            !a.tail_resolution_sufficient,
+            "300 draws * 0.625% = 1 per tail"
+        );
+    }
+    #[test]
+    fn bootstrap_interval_widens_with_comparisons_and_covers_nominally() {
+        // Regression: m > 1 previously produced the same 95% interval.
+        let mut x: u64 = 7;
+        let mut next = || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x % 2001) as i128 - 1000
+        };
+        let sample: Vec<(String, i128)> = (0..200).map(|i| (format!("e{i}"), next())).collect();
+        let one = clustered_bootstrap(&sample, 1, 4096, 1).unwrap();
+        let twenty = clustered_bootstrap(&sample, 1, 4096, 20).unwrap();
+        assert!(twenty.lower_mean_micro_usd < one.lower_mean_micro_usd);
+        assert!(twenty.upper_mean_micro_usd > one.upper_mean_micro_usd);
+        assert!(one.tail_resolution_sufficient);
+        // 4096 * 0.25% / 2 = 5 draws per tail: correctly flagged as too coarse.
+        assert!(!twenty.tail_resolution_sufficient);
+        // Empirical coverage of the true mean (0) under the null, m = 1.
+        let mut covered = 0;
+        let trials = 200;
+        for t in 0..trials {
+            let s: Vec<(String, i128)> = (0..60).map(|i| (format!("e{i}"), next())).collect();
+            let ci = clustered_bootstrap(&s, t + 1, 1000, 1).unwrap();
+            if ci.lower_mean_micro_usd <= 0 && 0 <= ci.upper_mean_micro_usd {
+                covered += 1;
+            }
+        }
+        let rate = covered as f64 / trials as f64;
+        assert!((0.88..=0.99).contains(&rate), "coverage {rate}");
     }
     #[test]
     fn micro_usd_unit_bridge_rejects_overflow_and_preserves_exactness() {

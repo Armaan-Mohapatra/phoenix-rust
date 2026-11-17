@@ -15,8 +15,12 @@
 //!   the deterministic routines in [`math`].
 pub mod campaign;
 pub mod engine;
+pub mod fingerprint;
 pub mod input;
 pub mod math;
+pub mod paths;
+pub mod registry;
+pub mod source;
 pub mod strategies;
 pub mod synthetic;
 

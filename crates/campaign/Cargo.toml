@@ -4,6 +4,7 @@ version = "0.1.0"
 publish = false
 edition.workspace = true
 rust-version.workspace = true
+build = "build.rs"
 description = "Offline, paper-only strategy research campaigns: causal views, strategy families, bounded search, chronological validation."
 
 [dependencies]
