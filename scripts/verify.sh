@@ -69,6 +69,9 @@ else
   gate "root/doctest" "$ROOT" cargo test $OFFLINE --workspace --doc
   gate "root/clippy" "$ROOT" cargo clippy $OFFLINE --workspace --all-targets -- -D warnings
   gate "root/cli-smoke" "$ROOT" cargo run $OFFLINE -q -p phoenix-cli
+  SMOKE_OUT="$LOGDIR/campaign-smoke-out"
+  gate "root/campaign-smoke" "$ROOT" cargo run $OFFLINE -q --release -p phoenix-campaign -- \
+    --scenario efficient --assets 2 --days 4 --seed 1 --threads 2 --out "$SMOKE_OUT"
   for d in "$ROOT"/integrations/*/; do
     n="$(basename "$d")"
     gate "int/$n/fmt" "$d" cargo fmt -- --check
