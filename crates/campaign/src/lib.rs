@@ -13,10 +13,15 @@
 //! * Money is integer 1e-4 USD ("ticks", as in `phoenix-domain`). Floating
 //!   point is used only for model probabilities and test statistics, through
 //!   the deterministic routines in [`math`].
+pub mod adapter;
 pub mod campaign;
 pub mod engine;
+pub mod fingerprint;
 pub mod input;
 pub mod math;
+pub mod paths;
+pub mod registry;
+pub mod source;
 pub mod strategies;
 pub mod synthetic;
 
@@ -44,6 +49,9 @@ pub struct Snapshot {
 pub enum Provenance {
     Synthetic,
     OperatorNormalized,
+    /// Operator data whose books were NOT certified executable by the source
+    /// verifier (see `adapter`). Usable for exploratory research only.
+    OperatorUnverified,
 }
 
 /// One short-duration binary market from open to expiration.
