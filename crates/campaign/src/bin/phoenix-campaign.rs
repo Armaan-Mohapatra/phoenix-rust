@@ -8,6 +8,11 @@
 //! Streaming file input (bounded memory):
 //!   phoenix-campaign --input markets.jsonl --out DIR [--threads 2] [--batch 256]
 //!       [--registry DIR [--confirmatory] [--allow-exploratory-reuse]]
+//! Authentic replay report -> campaign JSONL (one market; read-only inputs):
+//!   phoenix-campaign --adapt-replay REPORT.json --meta META.json \
+//!       --references REFS.jsonl [--perp PERP.jsonl] [--settlement S.json] \
+//!       [--allow-unverified-books] --out DIR
+//!   (REFS/PERP lines: {"received_ns":..,"value":..}; see adapter.rs.)
 //!
 //! Without `--confirmatory` a real-data run is Exploratory. With it, a
 //! registry is mandatory: a fresh holdout yields UntouchedConfirmatory; any
@@ -142,6 +147,57 @@ fn real_main(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
+    if let Some(report) = arg(args, "--adapt-replay") {
+        use phoenix_campaign::adapter::{adapt, AdaptPolicy, MarketMeta, Observation, Settlement};
+        let read = |k: &str| -> Result<Vec<u8>, String> {
+            let p = arg(args, k).ok_or(format!("{k} FILE is required"))?;
+            fs::read(&p).map_err(|e| format!("{p}: {e}"))
+        };
+        let obs = |bytes: &[u8]| -> Result<Vec<Observation>, String> {
+            std::str::from_utf8(bytes)
+                .map_err(|e| e.to_string())?
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .enumerate()
+                .map(|(i, l)| serde_json::from_str(l).map_err(|e| format!("line {}: {e}", i + 1)))
+                .collect()
+        };
+        let report_bytes = fs::read(&report).map_err(|e| format!("{report}: {e}"))?;
+        let meta: MarketMeta =
+            serde_json::from_slice(&read("--meta")?).map_err(|e| e.to_string())?;
+        let refs = obs(&read("--references")?)?;
+        let perp = if arg(args, "--perp").is_some() {
+            obs(&read("--perp")?)?
+        } else {
+            Vec::new()
+        };
+        let settle: Option<Settlement> = match arg(args, "--settlement") {
+            Some(_) => {
+                Some(serde_json::from_slice(&read("--settlement")?).map_err(|e| e.to_string())?)
+            }
+            None => None,
+        };
+        let policy = AdaptPolicy {
+            allow_unverified_books: flag(args, "--allow-unverified-books"),
+            ..Default::default()
+        };
+        let (case, rep) = adapt(&report_bytes, &meta, &refs, &perp, settle.as_ref(), &policy)
+            .map_err(|e| format!("{e:?}"))?;
+        let out = prepare_output_dir(&out_req, &roots).map_err(pe)?;
+        write_new_file(&out, "case.jsonl", (to_jsonl_line(&case) + "\n").as_bytes()).map_err(pe)?;
+        write_new_file(
+            &out,
+            "adapt_report.json",
+            &serde_json::to_vec_pretty(&rep).map_err(|e| e.to_string())?,
+        )
+        .map_err(pe)?;
+        println!(
+            "{}",
+            serde_json::to_string(&rep).map_err(|e| e.to_string())?
+        );
+        return Ok(());
+    }
+
     let Some(input) = arg(args, "--input") else {
         let name = arg(args, "--scenario")
             .ok_or("--scenario, --export-scenario or --input is required")?;
@@ -184,9 +240,11 @@ fn real_main(args: &[String]) -> Result<(), String> {
     // Identity pass so the registry record names the exact experiment.
     let mut fp = Fingerprinter::default();
     let mut synthetic = false;
+    let mut unverified = false;
     src.visit(&mut |b| {
         for c in b {
             synthetic |= c.provenance == Provenance::Synthetic;
+            unverified |= c.provenance == Provenance::OperatorUnverified;
             fp.push(c);
         }
         Ok(())
@@ -197,6 +255,10 @@ fn real_main(args: &[String]) -> Result<(), String> {
     let raw = src.raw_sha256();
     let mut class = match (synthetic, confirmatory) {
         (true, true) => return Err("synthetic input can never be confirmatory".into()),
+        (false, true) if unverified => return Err(
+            "input contains books not certified executable (operator_unverified); exploratory only"
+                .into(),
+        ),
         (true, false) => EvidenceClass::SyntheticEngineCheck,
         (false, true) => EvidenceClass::UntouchedConfirmatory,
         (false, false) => EvidenceClass::Exploratory,

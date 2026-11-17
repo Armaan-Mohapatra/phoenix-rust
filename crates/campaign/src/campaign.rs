@@ -386,7 +386,9 @@ pub fn run(
     cfg: &CampaignConfig,
 ) -> Result<Report, CampaignError> {
     let class = match cases.first().map(|c| c.provenance) {
-        Some(Provenance::OperatorNormalized) => EvidenceClass::Exploratory,
+        Some(Provenance::OperatorNormalized | Provenance::OperatorUnverified) => {
+            EvidenceClass::Exploratory
+        }
         _ => EvidenceClass::SyntheticEngineCheck,
     };
     let mut src = VecSource {
@@ -433,11 +435,13 @@ pub fn run_source(
     }
     let provenance = scan.prov.expect("n > 0");
     match (class, provenance) {
-        (EvidenceClass::SyntheticEngineCheck, Provenance::Synthetic) => {}
-        (EvidenceClass::SyntheticEngineCheck, _) | (_, Provenance::Synthetic) => {
-            return Err(CampaignError::ProvenanceMismatch)
-        }
-        _ => {}
+        (EvidenceClass::SyntheticEngineCheck, Provenance::Synthetic)
+        | (
+            EvidenceClass::Exploratory,
+            Provenance::OperatorNormalized | Provenance::OperatorUnverified,
+        )
+        | (EvidenceClass::UntouchedConfirmatory, Provenance::OperatorNormalized) => {}
+        _ => return Err(CampaignError::ProvenanceMismatch),
     }
     let normalized = std::mem::take(&mut scan.fp).finish();
     let sp = plan(scan.t0, scan.t1, cfg);

@@ -121,7 +121,9 @@ fn final_for(c: &MarketCase) -> Option<BinaryFinal> {
         venue_final: Evidence {
             source_id: match c.provenance {
                 Provenance::Synthetic => "SYNTHETIC-GENERATOR".into(),
-                Provenance::OperatorNormalized => "OPERATOR-NORMALIZED-FINAL".into(),
+                Provenance::OperatorNormalized | Provenance::OperatorUnverified => {
+                    "OPERATOR-SUPPLIED-FINAL".into()
+                }
             },
             content_sha256: c.source_sha256.clone(),
         },

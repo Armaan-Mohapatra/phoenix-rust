@@ -104,6 +104,7 @@ fn decode(buf: &str, line: usize) -> Result<MarketCase, InputError> {
     let provenance = match raw.provenance.as_deref() {
         None | Some("operator_normalized") => Provenance::OperatorNormalized,
         Some("synthetic") => Provenance::Synthetic,
+        Some("operator_unverified") => Provenance::OperatorUnverified,
         Some(other) => return Err(invalid(format!("provenance {other:?}"))),
     };
     let mut snapshots = Vec::with_capacity(raw.snapshots.len());
@@ -266,6 +267,7 @@ pub fn to_jsonl_line(c: &MarketCase) -> String {
             match c.provenance {
                 Provenance::Synthetic => "synthetic",
                 Provenance::OperatorNormalized => "operator_normalized",
+                Provenance::OperatorUnverified => "operator_unverified",
             }
             .into(),
         ),

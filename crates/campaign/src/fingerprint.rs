@@ -57,6 +57,7 @@ pub fn encode_case(h: &mut Sha256, c: &MarketCase) {
     h.update([match c.provenance {
         Provenance::Synthetic => 1u8,
         Provenance::OperatorNormalized => 2,
+        Provenance::OperatorUnverified => 3,
     }]);
     h.update([match c.winner {
         None => 0u8,
