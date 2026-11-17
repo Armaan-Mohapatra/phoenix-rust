@@ -8,6 +8,7 @@
 //! Streaming file input (bounded memory):
 //!   phoenix-campaign --input markets.jsonl --out DIR [--threads 2] [--batch 256]
 //!       [--registry DIR [--confirmatory] [--allow-exploratory-reuse]]
+//!       [--only-configs ID,ID]  (restrict the grid to listed configuration ids)
 //!       [--cache-dir DIR]   (binary case cache: JSON decoded at most once,
 //!                            reused across runs for identical raw bytes)
 //! Authentic replay report -> campaign JSONL (one market; read-only inputs):
@@ -131,7 +132,15 @@ fn real_main(args: &[String]) -> Result<(), String> {
         .ok_or_else(|| format!("unknown scenario {name}"))
     };
     let roots = protected_roots();
-    let grid = default_grid();
+    let mut grid = default_grid();
+    if let Some(ids) = arg(args, "--only-configs") {
+        let want: Vec<&str> = ids.split(',').filter(|s| !s.is_empty()).collect();
+        let known: Vec<String> = grid.iter().map(|c| c.id()).collect();
+        if let Some(bad) = want.iter().find(|w| !known.iter().any(|k| k == *w)) {
+            return Err(format!("--only-configs: unknown configuration id {bad:?}"));
+        }
+        grid.retain(|c| want.iter().any(|w| *w == c.id()));
+    }
 
     if let Some(name) = arg(args, "--export-scenario") {
         let out = prepare_output_dir(&out_req, &roots).map_err(pe)?;

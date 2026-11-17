@@ -9,6 +9,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 pub const GRACE_NS: i64 = 30_000_000_000;
+/// Minimum fraction of the market window that must be verified for the `ExecutableVerified` class.
+pub const EXECUTABLE_COVERAGE: f64 = 0.90;
 
 /// Crypto 15-minute binary series the research harness supports.
 pub fn research_asset(ticker: &str) -> Option<&'static str> {
@@ -218,6 +220,10 @@ impl ManifestBuilder {
             self.stream_last_recv = self.stream_last_recv.max(recv);
         }
         let ticker = meta.ticker();
+        if !meta.is_rest() && !matches!(meta.kind(), "orderbook_snapshot" | "orderbook_delta") {
+            self.verifier.observe_other(&meta);
+            self.drain(self.prev_ob_recv);
+        }
         match meta.kind() {
             "orderbook_snapshot" | "orderbook_delta" => {
                 if meta.kind() == "orderbook_snapshot" {
@@ -227,12 +233,15 @@ impl ManifestBuilder {
                 }
                 if research_asset(ticker).is_none() {
                     self.verifier.observe_sequence(&meta);
+                    self.drain(self.prev_ob_recv);
                     self.prev_ob_recv = recv;
                     return Ok(());
                 }
                 let out = self.verifier.on_orderbook(&meta, ev.msg, recv);
                 let prev = self.prev_ob_recv;
                 self.prev_ob_recv = recv;
+                // Close spans of books broken by this event BEFORE a snapshot restarts one.
+                self.drain(prev);
                 let a = self.entry(ticker);
                 a.seg_set.insert(seg);
                 let r = a.rec.as_mut().unwrap();
@@ -242,16 +251,13 @@ impl ManifestBuilder {
                     Outcome::Initialized => {
                         r.snapshots += 1;
                         r.first_snapshot_recv_ns.get_or_insert(recv);
-                        a.verified_since = Some(recv);
+                        a.verified_since.get_or_insert(recv); // a periodic re-snapshot must not shorten an open span
                     }
                     Outcome::Applied => r.deltas_applied += 1,
                     Outcome::IgnoredUnknown => r.deltas_before_init += 1,
                     Outcome::IgnoredBroken => r.deltas_while_broken += 1,
                     Outcome::Duplicate => {}
                     Outcome::Broke(_) => {}
-                }
-                for (t, why) in self.verifier.take_transitions() {
-                    self.close_span(&t, prev.max(0), why);
                 }
             }
             "trade" => {
@@ -334,6 +340,12 @@ impl ManifestBuilder {
         Ok(())
     }
 
+    fn drain(&mut self, end_ns: i64) {
+        for (t, why) in self.verifier.take_transitions() {
+            self.close_span(&t, end_ns.max(0), why);
+        }
+    }
+
     /// Ends a market's verified span at `end_ns` (clamped into its window when known).
     fn close_span(&mut self, ticker: &str, end_ns: i64, why: Break) {
         let a = self.entry(ticker);
@@ -342,9 +354,12 @@ impl ManifestBuilder {
             let (s, e) = clamp(start, end_ns, r.open_ns, r.close_ns);
             r.verified_ns += (e - s).max(0);
         }
-        r.break_count += 1;
-        if r.breaks.len() < 8 {
-            r.breaks.push(format!("{why:?}"));
+        // A break after the market has closed does not affect its research window.
+        if r.close_ns.map_or(true, |c| end_ns < c) {
+            r.break_count += 1;
+            if r.breaks.len() < 8 {
+                r.breaks.push(format!("{why:?}"));
+            }
         }
     }
 
@@ -411,7 +426,7 @@ pub fn classify(r: &MarketRecord) -> Eligibility {
     let Some(first) = r.first_snapshot_recv_ns else {
         return Eligibility::NoInitialization;
     };
-    if r.break_count == 0 && first <= open + GRACE_NS && r.coverage.unwrap_or(0.0) >= 0.95 {
+    if first <= open + GRACE_NS && r.coverage.unwrap_or(0.0) >= EXECUTABLE_COVERAGE {
         Eligibility::ExecutableVerified
     } else {
         Eligibility::PartialVerified
@@ -457,7 +472,9 @@ mod tests {
         r.first_snapshot_recv_ns = Some(120_000_000_000); // initialized two minutes after open
         assert_eq!(classify(&r), Eligibility::PartialVerified);
         let mut r = rec();
-        r.break_count = 1;
+        r.break_count = 3; // reconnects with immediate re-snapshot do not disqualify a market by themselves
+        assert_eq!(classify(&r), Eligibility::ExecutableVerified);
+        r.coverage = Some(0.5);
         assert_eq!(classify(&r), Eligibility::PartialVerified);
         let mut r = rec();
         r.first_snapshot_recv_ns = None;

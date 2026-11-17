@@ -13,7 +13,7 @@
 //!   wrong market, or a price/quantity that cannot be represented exactly.
 use crate::event::{decode_delta, decode_snapshot, parse_hundredths, parse_ticks, Meta};
 use phoenix_domain::{Book, Level, Price};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Break {
@@ -143,6 +143,9 @@ pub enum Outcome {
 pub struct Verifier {
     streams: HashMap<StreamKey, u64>,
     current: HashMap<String, (String, u32)>, // channel -> newest (run, generation)
+    /// Channels (sids) that carry order-book events. Every stored event on them, including control
+    /// messages such as `ok`/`subscribed`, consumes a sequence number.
+    ob_channels: HashSet<String>,
     books: HashMap<String, MarketBook>,
     pub stats: VerifierStats,
     /// Every Verified -> Broken transition since the last `take_transitions`, with the market
@@ -164,8 +167,19 @@ impl Verifier {
     /// Sequence accounting for an event whose book we do not keep (other markets share the same
     /// stream, so skipping them would make every gap invisible).
     pub fn observe_sequence(&mut self, meta: &Meta<'_>) {
+        self.ob_channels.insert(meta.channel().to_owned());
         if let Some(seq) = meta.seq() {
             let _ = self.track(meta, seq);
+        }
+    }
+    /// Sequence accounting for a NON-order-book event (`ok`, `subscribed`, ...) stored on an order-book
+    /// channel. These consume sequence numbers; ignoring them made every control message look like a
+    /// lost update (the 217 spurious "gaps" in the first corpus pass). No-op for other channels.
+    pub fn observe_other(&mut self, meta: &Meta<'_>) {
+        if self.ob_channels.contains(meta.channel()) {
+            if let Some(seq) = meta.seq() {
+                let _ = self.track(meta, seq);
+            }
         }
     }
     /// Drops a finished market's book (bounded memory over a multi-day corpus).
@@ -246,6 +260,7 @@ impl Verifier {
     /// Feeds one `orderbook_snapshot` / `orderbook_delta` event. `recv_ns` is its local arrival time.
     pub fn on_orderbook(&mut self, meta: &Meta<'_>, msg: &[u8], recv_ns: i64) -> Outcome {
         let ticker = meta.ticker();
+        self.ob_channels.insert(meta.channel().to_owned());
         let Some(seq) = meta.seq() else {
             self.stats.malformed += 1;
             return Outcome::Broke(Break::Malformed);
@@ -554,6 +569,60 @@ mod tests {
             matches!(v.book(t2).unwrap().state, BookState::Broken(_)),
             "other market stays broken"
         );
+    }
+
+    #[test]
+    fn control_messages_consume_sequence_numbers_without_breaking_books() {
+        let ctl = |seq: u64| {
+            format!("[1,\"kalshi\",\"*\",\"1\",\"ok\",null,null,\"2026-10-30T12:00:00.000000Z\",{seq},1,\"r:g1:sid1:seq{seq}:typeok\"]")
+        };
+        let mut v = Verifier::new();
+        feed(
+            &mut v,
+            T,
+            "orderbook_snapshot",
+            1,
+            1,
+            "r",
+            &snap(T, r#"[["0.4000","10.00"]]"#, "[]"),
+        );
+        // seq 2 is an `ok` acknowledgement stored between two deltas: continuous, not a gap.
+        let c = ctl(2);
+        v.observe_other(&Meta::parse(c.as_bytes(), 0).unwrap());
+        assert_eq!(
+            feed(
+                &mut v,
+                T,
+                "orderbook_delta",
+                3,
+                1,
+                "r",
+                &delta(T, "yes", "0.4000", "1.00")
+            ),
+            Outcome::Applied
+        );
+        assert_eq!(
+            (v.stats.gaps, v.book(T).unwrap().state),
+            (0, BookState::Verified)
+        );
+        // Without a stored message for seq 4, seq 5 is a real gap.
+        assert_eq!(
+            feed(
+                &mut v,
+                T,
+                "orderbook_delta",
+                5,
+                1,
+                "r",
+                &delta(T, "yes", "0.4000", "1.00")
+            ),
+            Outcome::IgnoredBroken
+        );
+        assert_eq!(v.stats.gaps, 1);
+        // Control events on a channel that never carried order-book events are ignored.
+        let other = "[1,\"kalshi\",\"*\",\"2\",\"ok\",null,null,\"2026-10-30T12:00:00.000000Z\",999,1,\"r:g1:sid2:seq999:typeok\"]";
+        v.observe_other(&Meta::parse(other.as_bytes(), 0).unwrap());
+        assert_eq!(v.stats.gaps, 1);
     }
 
     #[test]

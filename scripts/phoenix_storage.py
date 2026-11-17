@@ -8,7 +8,15 @@ touches anything outside the workspace).
   python scripts/phoenix_storage.py inventory ROOT... --out DIR
   python scripts/phoenix_storage.py dupes --out DIR [--min-bytes N]
   python scripts/phoenix_storage.py cleanup --workspace E:\\PhoenixLab [--apply]
+  python scripts/phoenix_storage.py compress FILE --workspace E:\\PhoenixLab [--apply [--replace --ack-dependencies-checked]]
+  python scripts/phoenix_storage.py dedupe FILE --keeper K --backup B --workspace E:\\PhoenixLab [--apply --ack-dependencies-checked]
+  python scripts/phoenix_storage.py restore ARCHIVE --workspace E:\\PhoenixLab [--apply]
   python scripts/phoenix_storage.py selftest
+
+compress/dedupe/restore implement the Phase 19 storage policy (Class B/C) for DERIVED data only: they act
+solely on files under <workspace>/derived/regenerable or <workspace>/cache/temporary, refuse links, SQLite/
+WAL/partial files and already-compressed types, re-hash everything immediately before removal, and append
+receipts to <workspace>/maintenance/storage-actions.jsonl. Default is dry-run.
 """
 from __future__ import annotations
 
@@ -21,6 +29,8 @@ import shutil
 import stat
 import sys
 import time
+import uuid
+import zipfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -258,6 +268,228 @@ def cleanup(workspace: Path, apply: bool, now: float | None = None) -> dict:
     return log
 
 
+# ---- policy actions: lossless compress / exact-duplicate delete / restore (derived data only) ----
+CHUNK = 1 << 20
+BLOCKED_SUFFIXES = (".sqlite", ".sqlite3", ".db", ".duckdb", ".partial", "-wal", "-shm", "-journal",
+                    ".zip", ".7z", ".gz", ".zst", ".xz", ".bz2", ".parquet")
+ALLOWED_AREAS = (("derived", "regenerable"), ("cache", "temporary"))
+FORBIDDEN_PARTS = {"tradingnextdata", "kalshidata", "phoenixresearch", "production", "paper15m_runtime"}
+
+
+def _no_links(path: Path) -> None:
+    if ".." in path.parts:
+        raise ValueError("parent traversal refused")
+    for node in (*reversed(path.absolute().parents), path.absolute()):
+        try:
+            st = node.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(st.st_mode) or getattr(st, "st_file_attributes", 0) & REPARSE:
+            raise ValueError(f"symlink / junction / reparse point refused: {node}")
+
+
+def _within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _guard(file: Path, workspace: Path, *, archive: bool = False) -> tuple[Path, Path]:
+    _no_links(file)
+    _no_links(workspace)
+    file, workspace = file.resolve(strict=True), workspace.resolve(strict=True)
+    if workspace.name.casefold() != "phoenixlab" or any(p.casefold() in FORBIDDEN_PARTS for p in workspace.parts):
+        raise ValueError("workspace must be an independent PhoenixLab root outside protected source trees")
+    if not file.is_file():
+        raise ValueError("expected an existing regular file")
+    if archive:
+        if not _within(file, workspace / "maintenance" / "compressed"):
+            raise ValueError("restore archive must be inside maintenance/compressed")
+    else:
+        if not any(_within(file, workspace.joinpath(*a)) for a in ALLOWED_AREAS):
+            raise ValueError("operation restricted to PhoenixLab derived/regenerable or cache/temporary")
+        if file.name.lower().endswith(BLOCKED_SUFFIXES):
+            raise ValueError("protected or already-compressed file type refused")
+    return file, workspace
+
+
+def _sha(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        while buf := f.read(CHUNK):
+            h.update(buf)
+    return h.hexdigest()
+
+
+def _zip_sha(path: Path) -> str:
+    h = hashlib.sha256()
+    with zipfile.ZipFile(path) as z:
+        if z.namelist() != ["content"]:
+            raise ValueError("archive must contain exactly one `content` member")
+        with z.open("content") as s:
+            while buf := s.read(CHUNK):
+                h.update(buf)
+    return h.hexdigest()
+
+
+def _receipt(workspace: Path, item: dict) -> None:
+    log = workspace / "maintenance" / "storage-actions.jsonl"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"utc_epoch": time.time(), **item}, sort_keys=True) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def compress_file(file: Path, workspace: Path, *, apply: bool, replace: bool, ack: bool, min_savings: float = 10.0) -> dict:
+    file, workspace = _guard(file, workspace)
+    sha, st = _sha(file), file.stat()
+    action = {"action": "compress", "path": str(file), "bytes": st.st_size, "sha256": sha, "replace": replace, "applied": False}
+    if not 0 <= min_savings <= 100:
+        raise ValueError("min-savings must be between 0 and 100")
+    if apply and replace and not ack:
+        raise ValueError("replacement requires --ack-dependencies-checked")
+    if not apply:
+        return action
+    target_dir = workspace / "maintenance" / "compressed"
+    _no_links(target_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    if shutil.disk_usage(target_dir).free < st.st_size + (64 << 20):
+        raise RuntimeError("insufficient free space to stage the archive")
+    target = target_dir / f"{sha[:16]}-{uuid.uuid4().hex}.zip"
+    tmp = target.with_suffix(".zip.tmp")
+    try:
+        with zipfile.ZipFile(tmp, "x", zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as z:
+            z.write(file, arcname="content")
+        after = file.stat()
+        if _zip_sha(tmp) != sha or _sha(file) != sha or (after.st_size, after.st_mtime_ns) != (st.st_size, st.st_mtime_ns):
+            raise RuntimeError("source changed or archive failed round-trip verification")
+        size = tmp.stat().st_size
+        savings = (1 - size / st.st_size) * 100 if st.st_size else 0.0
+        if replace and savings < min_savings:
+            raise RuntimeError(f"savings {savings:.1f}% below minimum {min_savings:.1f}%")
+        os.replace(tmp, target)
+        action.update({"archive": str(target), "archive_bytes": size, "archive_sha256": _sha(target), "savings_pct": round(savings, 3),
+                       "applied": True, "rollback": f"python scripts/phoenix_storage.py restore {target} --workspace {workspace} --apply"})
+        _receipt(workspace, action)
+        if replace:
+            file.unlink()
+            action["original_removed"] = True
+            _receipt(workspace, {"action": "compress_replaced", "path": str(file), "archive": str(target), "sha256": sha})
+        return action
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def dedupe_file(victim: Path, keeper: Path, backup: Path, workspace: Path, *, apply: bool, ack: bool) -> dict:
+    victim, workspace = _guard(victim, workspace)
+    for p in (keeper, backup):
+        _no_links(p)
+    keeper, backup = keeper.resolve(strict=True), backup.resolve(strict=True)
+    if len({victim, keeper, backup}) != 3 or not keeper.is_file() or not backup.is_file():
+        raise ValueError("victim, keeper and backup must be three distinct regular files")
+    if keeper.name.lower().endswith(("-wal", "-shm", "-journal", ".partial")):
+        raise ValueError("active/ambiguous keeper refused")
+    bsha = _zip_sha(backup) if backup.suffix.lower() == ".zip" else _sha(backup)
+    vsha, st = _sha(victim), victim.stat()
+    if st.st_size != keeper.stat().st_size or vsha != _sha(keeper) or bsha != vsha:
+        raise ValueError("victim, keeper and backup do not all match byte-for-byte")
+    action = {"action": "dedupe", "path": str(victim), "keeper": str(keeper), "backup": str(backup),
+              "bytes": st.st_size, "sha256": vsha, "applied": False}
+    if apply:
+        if not ack:
+            raise ValueError("deletion requires --ack-dependencies-checked")
+        now = victim.stat()
+        if _sha(victim) != vsha or _sha(keeper) != vsha or (now.st_size, now.st_mtime_ns) != (st.st_size, st.st_mtime_ns):
+            raise RuntimeError("a file changed before deletion")
+        _receipt(workspace, {**action, "action": "dedupe_intent", "rollback": f"copy {keeper} back to {victim}"})
+        victim.unlink()
+        action["applied"] = True
+        _receipt(workspace, action)
+    return action
+
+
+def restore_file(archive: Path, workspace: Path, *, apply: bool) -> dict:
+    archive, workspace = _guard(archive, workspace, archive=True)
+    log = workspace / "maintenance" / "storage-actions.jsonl"
+    events = []
+    if log.exists():
+        for line in log.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                e = json.loads(line)
+                if e.get("action") == "compress" and e.get("archive") == str(archive):
+                    events.append(e)
+    if not events:
+        raise RuntimeError("no verified compression receipt for this archive")
+    original = Path(events[-1]["path"])
+    _no_links(original)
+    if not any(_within(original, workspace.joinpath(*a)) for a in ALLOWED_AREAS):
+        raise ValueError("restore target outside allowed workspace areas")
+    if original.exists():
+        raise FileExistsError("restore destination exists; will not overwrite")
+    if _sha(archive) != events[-1]["archive_sha256"]:
+        raise RuntimeError("archive checksum mismatch")
+    action = {"action": "restore", "archive": str(archive), "path": str(original), "applied": False}
+    if apply:
+        original.parent.mkdir(parents=True, exist_ok=True)
+        tmp = original.with_name(original.name + "." + uuid.uuid4().hex + ".restoring")
+        try:
+            with zipfile.ZipFile(archive) as z, z.open("content") as s, tmp.open("xb") as o:
+                shutil.copyfileobj(s, o, CHUNK)
+                o.flush()
+                os.fsync(o.fileno())
+            if _sha(tmp) != events[-1]["sha256"]:
+                raise RuntimeError("restored content does not match the recorded SHA-256")
+            os.replace(tmp, original)
+            action["applied"] = True
+            _receipt(workspace, action)
+        finally:
+            tmp.unlink(missing_ok=True)
+    return action
+
+
+def _expect_refused(fn, what: str) -> None:
+    try:
+        fn()
+    except (ValueError, RuntimeError, FileExistsError):
+        return
+    raise AssertionError(f"not refused: {what}")
+
+
+def _selftest_actions() -> None:
+    import tempfile
+    with tempfile.TemporaryDirectory() as t:
+        ws = Path(t) / "PhoenixLab"
+        reg = ws / "derived" / "regenerable"
+        reg.mkdir(parents=True)
+        f = reg / "cases.jsonl"
+        f.write_bytes(b'{"a": 1}\n' * 20000)
+        sha0 = _sha(f)
+        assert not compress_file(f, ws, apply=False, replace=False, ack=False)["applied"] and f.exists()
+        _expect_refused(lambda: compress_file(f, ws, apply=True, replace=True, ack=False), "replace without ack")
+        done = compress_file(f, ws, apply=True, replace=True, ack=True)
+        assert done["applied"] and done.get("original_removed") and not f.exists() and done["savings_pct"] > 90
+        assert restore_file(Path(done["archive"]), ws, apply=True)["applied"] and _sha(f) == sha0, "restore must be byte-identical"
+        k, b = reg / "keeper.jsonl", reg / "backup.jsonl"
+        k.write_bytes(f.read_bytes())
+        b.write_bytes(f.read_bytes())
+        _expect_refused(lambda: dedupe_file(f, k, b, ws, apply=True, ack=False), "delete without ack")
+        assert dedupe_file(f, k, b, ws, apply=True, ack=True)["applied"] and not f.exists() and k.exists() and b.exists()
+        outside = Path(t) / "elsewhere.jsonl"
+        outside.write_text("x")
+        sqlite = ws / "cache" / "temporary" / "x.sqlite3"
+        sqlite.parent.mkdir(parents=True)
+        sqlite.write_bytes(b"x" * 10)
+        pq = reg / "y.parquet"
+        pq.write_bytes(b"x" * 10)
+        for bad in (outside, sqlite, pq):
+            _expect_refused(lambda bad=bad: compress_file(bad, ws, apply=True, replace=False, ack=False), str(bad))
+        k2 = reg / "k2.jsonl"
+        k2.write_bytes(b"different")
+        _expect_refused(lambda: dedupe_file(k2, k, b, ws, apply=False, ack=False), "mismatching keeper")
+
 def _selftest() -> None:
     import tempfile
     with tempfile.TemporaryDirectory() as t:
@@ -289,6 +521,7 @@ def _selftest() -> None:
                 raise AssertionError(f"not refused: {managed}")
             except SystemExit:
                 pass
+    _selftest_actions()
     print("selftest ok")
 
 
@@ -307,6 +540,24 @@ def main(argv: list[str]) -> None:
     c.add_argument("--workspace", required=True, type=Path)
     c.add_argument("--apply", action="store_true")
     sub.add_parser("selftest")
+    d2 = sub.add_parser("compress")
+    d2.add_argument("file", type=Path)
+    d2.add_argument("--workspace", required=True, type=Path)
+    d2.add_argument("--apply", action="store_true")
+    d2.add_argument("--replace", action="store_true")
+    d2.add_argument("--ack-dependencies-checked", action="store_true")
+    d2.add_argument("--min-savings", type=float, default=10.0)
+    d3 = sub.add_parser("dedupe")
+    d3.add_argument("file", type=Path)
+    d3.add_argument("--keeper", required=True, type=Path)
+    d3.add_argument("--backup", required=True, type=Path)
+    d3.add_argument("--workspace", required=True, type=Path)
+    d3.add_argument("--apply", action="store_true")
+    d3.add_argument("--ack-dependencies-checked", action="store_true")
+    d4 = sub.add_parser("restore")
+    d4.add_argument("archive", type=Path)
+    d4.add_argument("--workspace", required=True, type=Path)
+    d4.add_argument("--apply", action="store_true")
     args = ap.parse_args(argv)
     if args.cmd == "inventory":
         cat = inventory(args.roots, args.out, args.depth, args.min_file_bytes)
@@ -317,6 +568,14 @@ def main(argv: list[str]) -> None:
     elif args.cmd == "cleanup":
         log = cleanup(args.workspace, args.apply)
         print(json.dumps({k: log[k] for k in ("mode", "files", "bytes")}))
+    elif args.cmd == "compress":
+        print(json.dumps(compress_file(args.file, args.workspace, apply=args.apply, replace=args.replace,
+                                       ack=args.ack_dependencies_checked, min_savings=args.min_savings), indent=1))
+    elif args.cmd == "dedupe":
+        print(json.dumps(dedupe_file(args.file, args.keeper, args.backup, args.workspace, apply=args.apply,
+                                     ack=args.ack_dependencies_checked), indent=1))
+    elif args.cmd == "restore":
+        print(json.dumps(restore_file(args.archive, args.workspace, apply=args.apply), indent=1))
     else:
         _selftest()
 

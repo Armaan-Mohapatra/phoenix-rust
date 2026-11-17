@@ -7,3 +7,4 @@ pub mod cases;
 pub mod container;
 pub mod corpus;
 pub mod event;
+pub mod frozen;

@@ -175,10 +175,15 @@ impl<'a, W: Write> CaseBuilder<'a, W> {
         };
         self.stream_last_recv = self.stream_last_recv.max(recv);
         let kind = meta.kind();
+        if kind != "orderbook_snapshot" && kind != "orderbook_delta" {
+            self.verifier.observe_other(&meta);
+            self.flush_transitions();
+        }
         if kind == "orderbook_snapshot" || kind == "orderbook_delta" {
             let ticker = meta.ticker();
             if !self.info.contains_key(ticker) || self.done.contains(ticker) {
                 self.verifier.observe_sequence(&meta);
+                self.flush_transitions();
             } else {
                 let bucket = recv.div_euclid(self.cfg.sample_ns);
                 let st = self
@@ -214,6 +219,13 @@ impl<'a, W: Write> CaseBuilder<'a, W> {
             self.finalize_due(recv)?;
         }
         Ok(())
+    }
+
+    /// A break caused by a message that is not for a market leaves that market's ladder intact: flush it.
+    fn flush_transitions(&mut self) {
+        for (t, _) in self.verifier.take_transitions() {
+            self.emit_sample(&t);
+        }
     }
 
     fn finalize_due(&mut self, now: i64) -> Result<(), TnError> {

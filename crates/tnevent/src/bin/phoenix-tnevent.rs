@@ -4,8 +4,10 @@
 //!       manifest SHA-256 + size, block/event CRC32, event count, for every finalized segment
 //!   phoenix-tnevent manifest --root DIR --out DIR [--from N] [--to M] [--no-hash]
 //!       market manifest (coverage, verification, settlement evidence, eligibility class)
-//!   phoenix-tnevent cases    --root DIR --manifest DIR/markets.jsonl --out DIR [--partial]
+//!   phoenix-tnevent cases    --root DIR --manifest DIR/markets.jsonl --out DIR [--partial] [--close-from UTC] [--close-to UTC]
 //!       campaign-ready cases.jsonl (cluster-ordered), for markets the manifest accepted
+//!
+//!   phoenix-tnevent parity-eval   (stdin: JSON lines {yes_bids,no_bids}; stdout: frozen-strategy decisions)
 //!
 //! Output directories must be new/empty and outside protected roots (`PHOENIX_PROTECTED_ROOTS`).
 use phoenix_campaign::paths::{prepare_output_dir, protected_roots};
@@ -172,6 +174,15 @@ fn run(args: &[String]) -> Result<(), String> {
                         .map_err(|e| e.to_string())?,
                 );
             }
+            let (cf, ct) = (arg(args, "--close-from"), arg(args, "--close-to"));
+            let bound = |s: Option<String>, d: i64| -> Result<i64, String> {
+                s.map_or(Ok(d), |v| {
+                    phoenix_tnevent::event::parse_utc_ns(&v)
+                        .ok_or(format!("bad UTC timestamp {v:?}"))
+                })
+            };
+            let (cf, ct) = (bound(cf, i64::MIN)?, bound(ct, i64::MAX)?);
+            records.retain(|r| r.close_ns.is_some_and(|c| c >= cf && c < ct));
             let seg_sha: BTreeMap<u64, String> = {
                 let sp = PathBuf::from(&mpath).with_file_name("segments.jsonl");
                 let mut m = BTreeMap::new();
@@ -225,6 +236,16 @@ fn run(args: &[String]) -> Result<(), String> {
                 })
                 .map_err(|e| e.to_string())?;
             println!("{}", serde_json::to_string_pretty(&summary).unwrap());
+        }
+        "parity-eval" => {
+            use phoenix_tnevent::frozen::{book_flow, market_only, Obs};
+            let mut out = BufWriter::new(std::io::stdout().lock());
+            for line in std::io::stdin().lock().lines() {
+                let o: Obs = serde_json::from_str(&line.map_err(|e| e.to_string())?)
+                    .map_err(|e| e.to_string())?;
+                let v = serde_json::json!({"mo": market_only(&o), "bf": book_flow(&o)});
+                writeln!(out, "{v}").map_err(|e| e.to_string())?;
+            }
         }
         other => return Err(format!("unknown command {other:?}")),
     }
