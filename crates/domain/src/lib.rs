@@ -9,7 +9,10 @@ pub type Money = i128;
 pub type TimestampNs = i64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Side { Yes, No }
+pub enum Side {
+    Yes,
+    No,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -31,15 +34,24 @@ pub enum Error {
 pub struct Price(u16);
 impl Price {
     pub fn new(value: u16) -> Result<Self, Error> {
-        if value > ONE_DOLLAR { return Err(Error::InvalidPrice); }
+        if value > ONE_DOLLAR {
+            return Err(Error::InvalidPrice);
+        }
         Ok(Self(value))
     }
-    pub fn ticks(self) -> u16 { self.0 }
-    pub fn complement(self) -> Self { Self(ONE_DOLLAR - self.0) }
+    pub fn ticks(self) -> u16 {
+        self.0
+    }
+    pub fn complement(self) -> Self {
+        Self(ONE_DOLLAR - self.0)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Level { pub price: Price, pub quantity: u64 }
+pub struct Level {
+    pub price: Price,
+    pub quantity: u64,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Book {
@@ -53,12 +65,16 @@ pub struct Book {
 }
 impl Book {
     pub fn validate(&self) -> Result<(), Error> {
-        if self.market.is_empty() || self.session_id.is_empty() || self.exchange_ns > self.received_ns {
+        if self.market.is_empty()
+            || self.session_id.is_empty()
+            || self.exchange_ns > self.received_ns
+        {
             return Err(Error::InvalidBook);
         }
         for levels in [&self.yes_bids, &self.no_bids] {
-            if levels.iter().any(|l| l.quantity == 0) ||
-                levels.windows(2).any(|w| w[0].price <= w[1].price) {
+            if levels.iter().any(|l| l.quantity == 0)
+                || levels.windows(2).any(|w| w[0].price <= w[1].price)
+            {
                 return Err(Error::InvalidLevel);
             }
         }
@@ -73,32 +89,55 @@ impl Book {
         match side {
             Side::Yes => self.yes_bids.first(),
             Side::No => self.no_bids.first(),
-        }.map(|l| l.price)
+        }
+        .map(|l| l.price)
     }
     pub fn best_ask(&self, side: Side) -> Option<Price> {
-        self.best_bid(match side { Side::Yes => Side::No, Side::No => Side::Yes })
-            .map(Price::complement)
+        self.best_bid(match side {
+            Side::Yes => Side::No,
+            Side::No => Side::Yes,
+        })
+        .map(Price::complement)
     }
     pub fn spread(&self, side: Side) -> Option<u16> {
         Some(self.best_ask(side)?.ticks() - self.best_bid(side)?.ticks())
     }
     pub fn ask_depth(&self, side: Side) -> &[Level] {
-        match side { Side::Yes => &self.no_bids, Side::No => &self.yes_bids }
+        match side {
+            Side::Yes => &self.no_bids,
+            Side::No => &self.yes_bids,
+        }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FeeRate { pub numerator: u64, pub denominator: u64 }
+pub struct FeeRate {
+    pub numerator: u64,
+    pub denominator: u64,
+}
 impl FeeRate {
-    pub const ZERO: Self = Self { numerator: 0, denominator: 1 };
-    pub const STANDARD_TAKER: Self = Self { numerator: 7, denominator: 100 };
-    pub const MAKER_IF_APPLICABLE: Self = Self { numerator: 7, denominator: 400 };
+    pub const ZERO: Self = Self {
+        numerator: 0,
+        denominator: 1,
+    };
+    pub const STANDARD_TAKER: Self = Self {
+        numerator: 7,
+        denominator: 100,
+    };
+    pub const MAKER_IF_APPLICABLE: Self = Self {
+        numerator: 7,
+        denominator: 400,
+    };
 
     /// C * rate * P*(1-P), rounded upward to $0.0001 for one price-level
     /// aggregate. Callers must choose the appropriate historical product/role rate.
     pub fn charge(self, quantity: u64, price: Price) -> Result<Money, Error> {
-        if quantity == 0 { return Err(Error::ZeroQuantity); }
-        if self.denominator == 0 { return Err(Error::InvalidFee); }
+        if quantity == 0 {
+            return Err(Error::ZeroQuantity);
+        }
+        if self.denominator == 0 {
+            return Err(Error::InvalidFee);
+        }
         let n = u128::from(quantity)
             .checked_mul(u128::from(self.numerator))
             .and_then(|x| x.checked_mul(u128::from(price.0)))
@@ -114,10 +153,14 @@ impl FeeRate {
 
 /// A snapshot may only be used if it had ARRIVED by the strategy's decision
 /// or simulated exchange-arrival time, and remains within the freshness cap.
-pub fn require_asof(snapshot_received_ns: TimestampNs, asof_ns: TimestampNs, max_age_ns: i64)
-    -> Result<(), Error>
-{
-    if snapshot_received_ns > asof_ns { return Err(Error::FutureData); }
+pub fn require_asof(
+    snapshot_received_ns: TimestampNs,
+    asof_ns: TimestampNs,
+    max_age_ns: i64,
+) -> Result<(), Error> {
+    if snapshot_received_ns > asof_ns {
+        return Err(Error::FutureData);
+    }
     if max_age_ns < 0 || asof_ns.saturating_sub(snapshot_received_ns) > max_age_ns {
         return Err(Error::StaleData);
     }
@@ -125,9 +168,16 @@ pub fn require_asof(snapshot_received_ns: TimestampNs, asof_ns: TimestampNs, max
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SequenceStatus { First, Continuous, Gap { missing: u64 }, DuplicateOrReordered }
+pub enum SequenceStatus {
+    First,
+    Continuous,
+    Gap { missing: u64 },
+    DuplicateOrReordered,
+}
 #[derive(Default)]
-pub struct SequenceTracker { last: HashMap<(String, String), u64> }
+pub struct SequenceTracker {
+    last: HashMap<(String, String), u64>,
+}
 impl SequenceTracker {
     pub fn observe(&mut self, feed: &str, session: &str, sequence: u64) -> SequenceStatus {
         let key = (feed.into(), session.into());
@@ -139,8 +189,13 @@ impl SequenceTracker {
             Some(prev) if sequence <= prev => SequenceStatus::DuplicateOrReordered,
             Some(prev) => {
                 self.last.insert(key, sequence);
-                if sequence == prev + 1 { SequenceStatus::Continuous }
-                else { SequenceStatus::Gap { missing: sequence - prev - 1 } }
+                if sequence == prev + 1 {
+                    SequenceStatus::Continuous
+                } else {
+                    SequenceStatus::Gap {
+                        missing: sequence - prev - 1,
+                    }
+                }
             }
         }
     }
@@ -162,24 +217,32 @@ pub struct BinaryFinal {
     pub independent: Option<Evidence>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EvidenceTier { VenueFinal, Independent }
+pub enum EvidenceTier {
+    VenueFinal,
+    Independent,
+}
 impl BinaryFinal {
     /// Distinct identifiers and hashes are NOT sufficient provenance to
     /// certify independent reference observations. Until an authenticated
     /// source+rules verifier exists this returns at most VenueFinal.
     pub fn tier(&self) -> Result<EvidenceTier, Error> {
-        if self.market.trim().is_empty() || self.rules_sha256.trim().is_empty() ||
-            self.venue_final.source_id.trim().is_empty() ||
-            self.venue_final.content_sha256.trim().is_empty() {
+        if self.market.trim().is_empty()
+            || self.rules_sha256.trim().is_empty()
+            || self.venue_final.source_id.trim().is_empty()
+            || self.venue_final.content_sha256.trim().is_empty()
+        {
             return Err(Error::MissingEvidence);
         }
         match &self.independent {
             None => Ok(EvidenceTier::VenueFinal),
-            Some(other) if other.source_id.trim().is_empty() ||
-                other.content_sha256.trim().is_empty() ||
-                other.source_id == self.venue_final.source_id ||
-                other.content_sha256 == self.venue_final.content_sha256 =>
-                    Err(Error::EvidenceNotIndependent),
+            Some(other)
+                if other.source_id.trim().is_empty()
+                    || other.content_sha256.trim().is_empty()
+                    || other.source_id == self.venue_final.source_id
+                    || other.content_sha256 == self.venue_final.content_sha256 =>
+            {
+                Err(Error::EvidenceNotIndependent)
+            }
             Some(_) => Ok(EvidenceTier::VenueFinal),
         }
     }
@@ -203,17 +266,33 @@ pub struct SettledPnl {
 
 /// Modeled buy-to-expiry P&L, not a real executed trade. Unknown settlement
 /// or invalid/mismatched evidence must remain NULL in downstream reporting.
-pub fn settle_binary(fill: &ModeledBuyFill, final_result: &BinaryFinal) -> Result<SettledPnl, Error> {
-    if fill.quantity == 0 { return Err(Error::ZeroQuantity); }
-    if fill.market != final_result.market { return Err(Error::MarketMismatch); }
-    if fill.rules_sha256 != final_result.rules_sha256 { return Err(Error::RuleMismatch); }
+pub fn settle_binary(
+    fill: &ModeledBuyFill,
+    final_result: &BinaryFinal,
+) -> Result<SettledPnl, Error> {
+    if fill.quantity == 0 {
+        return Err(Error::ZeroQuantity);
+    }
+    if fill.market != final_result.market {
+        return Err(Error::MarketMismatch);
+    }
+    if fill.rules_sha256 != final_result.rules_sha256 {
+        return Err(Error::RuleMismatch);
+    }
     let tier = final_result.tier()?;
     let q = Money::from(fill.quantity);
-    let stake = Money::from(fill.price.0).checked_mul(q).ok_or(Error::ArithmeticOverflow)?;
+    let stake = Money::from(fill.price.0)
+        .checked_mul(q)
+        .ok_or(Error::ArithmeticOverflow)?;
     let payout = if fill.side == final_result.winner {
-        Money::from(ONE_DOLLAR).checked_mul(q).ok_or(Error::ArithmeticOverflow)?
-    } else { 0 };
-    let net = payout.checked_sub(stake)
+        Money::from(ONE_DOLLAR)
+            .checked_mul(q)
+            .ok_or(Error::ArithmeticOverflow)?
+    } else {
+        0
+    };
+    let net = payout
+        .checked_sub(stake)
         .and_then(|x| x.checked_sub(fill.entry_fee))
         .ok_or(Error::ArithmeticOverflow)?;
     Ok(SettledPnl { net, tier })
@@ -222,62 +301,127 @@ pub fn settle_binary(fill: &ModeledBuyFill, final_result: &BinaryFinal) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn p(x:u16) -> Price { Price::new(x).unwrap() }
-    fn book() -> Book { Book {
-        market:"M".into(),yes_bids:vec![Level{price:p(4000),quantity:5}],
-        no_bids:vec![Level{price:p(5700),quantity:2}],
-        exchange_ns:90,received_ns:100,session_id:"S1".into(),sequence:1
-    }}
-    #[test] fn yes_no_complement_and_spread() {
-        let b=book();b.validate().unwrap();
-        assert_eq!(b.best_ask(Side::Yes),Some(p(4300)));
-        assert_eq!(b.best_ask(Side::No),Some(p(6000)));
-        assert_eq!(b.spread(Side::Yes),Some(300));
+    fn p(x: u16) -> Price {
+        Price::new(x).unwrap()
     }
-    #[test] fn reject_bad_books() {
-        let mut b=book();b.no_bids[0].price=p(7000);
-        assert_eq!(b.validate(),Err(Error::InvalidBook));
-        let mut b=book();b.yes_bids.push(b.yes_bids[0]);
-        assert_eq!(b.validate(),Err(Error::InvalidLevel));
+    fn book() -> Book {
+        Book {
+            market: "M".into(),
+            yes_bids: vec![Level {
+                price: p(4000),
+                quantity: 5,
+            }],
+            no_bids: vec![Level {
+                price: p(5700),
+                quantity: 2,
+            }],
+            exchange_ns: 90,
+            received_ns: 100,
+            session_id: "S1".into(),
+            sequence: 1,
+        }
     }
-    #[test] fn fee_schedule_rounding() {
-        assert_eq!(FeeRate::STANDARD_TAKER.charge(1,p(5000)).unwrap(),175);
-        assert_eq!(FeeRate::STANDARD_TAKER.charge(1,p(5500)).unwrap(),174);
-        assert_eq!(FeeRate::MAKER_IF_APPLICABLE.charge(1,p(5000)).unwrap(),44);
-        assert_eq!(FeeRate::ZERO.charge(1,p(5000)).unwrap(),0);
+    #[test]
+    fn yes_no_complement_and_spread() {
+        let b = book();
+        b.validate().unwrap();
+        assert_eq!(b.best_ask(Side::Yes), Some(p(4300)));
+        assert_eq!(b.best_ask(Side::No), Some(p(6000)));
+        assert_eq!(b.spread(Side::Yes), Some(300));
     }
-    #[test] fn causality_and_freshness() {
-        assert_eq!(require_asof(110,100,20),Err(Error::FutureData));
-        assert_eq!(require_asof(90,100,5),Err(Error::StaleData));
-        require_asof(90,100,10).unwrap();
+    #[test]
+    fn reject_bad_books() {
+        let mut b = book();
+        b.no_bids[0].price = p(7000);
+        assert_eq!(b.validate(), Err(Error::InvalidBook));
+        let mut b = book();
+        b.yes_bids.push(b.yes_bids[0]);
+        assert_eq!(b.validate(), Err(Error::InvalidLevel));
     }
-    #[test] fn sequence_gaps_are_not_clean() {
-        let mut t=SequenceTracker::default();
-        assert_eq!(t.observe("kalshi","a",4),SequenceStatus::First);
-        assert_eq!(t.observe("kalshi","a",6),SequenceStatus::Gap{missing:1});
-        assert_eq!(t.observe("kalshi","a",6),SequenceStatus::DuplicateOrReordered);
-        assert_eq!(t.observe("kalshi","b",1),SequenceStatus::First);
+    #[test]
+    fn fee_schedule_rounding() {
+        assert_eq!(FeeRate::STANDARD_TAKER.charge(1, p(5000)).unwrap(), 175);
+        assert_eq!(FeeRate::STANDARD_TAKER.charge(1, p(5500)).unwrap(), 174);
+        assert_eq!(FeeRate::MAKER_IF_APPLICABLE.charge(1, p(5000)).unwrap(), 44);
+        assert_eq!(FeeRate::ZERO.charge(1, p(5000)).unwrap(), 0);
+    }
+    #[test]
+    fn causality_and_freshness() {
+        assert_eq!(require_asof(110, 100, 20), Err(Error::FutureData));
+        assert_eq!(require_asof(90, 100, 5), Err(Error::StaleData));
+        require_asof(90, 100, 10).unwrap();
+    }
+    #[test]
+    fn sequence_gaps_are_not_clean() {
+        let mut t = SequenceTracker::default();
+        assert_eq!(t.observe("kalshi", "a", 4), SequenceStatus::First);
+        assert_eq!(
+            t.observe("kalshi", "a", 6),
+            SequenceStatus::Gap { missing: 1 }
+        );
+        assert_eq!(
+            t.observe("kalshi", "a", 6),
+            SequenceStatus::DuplicateOrReordered
+        );
+        assert_eq!(t.observe("kalshi", "b", 1), SequenceStatus::First);
     }
     fn final_result() -> BinaryFinal {
-        BinaryFinal {market:"M".into(),rules_sha256:"r".into(),winner:Side::Yes,
-            venue_final:Evidence{source_id:"kalshi".into(),content_sha256:"x".into()},
-            independent:None}
+        BinaryFinal {
+            market: "M".into(),
+            rules_sha256: "r".into(),
+            winner: Side::Yes,
+            venue_final: Evidence {
+                source_id: "kalshi".into(),
+                content_sha256: "x".into(),
+            },
+            independent: None,
+        }
     }
-    #[test] fn evidence_and_pnl() {
-        let f=ModeledBuyFill{market:"M".into(),rules_sha256:"r".into(),side:Side::Yes,
-            price:p(5500),quantity:1,entry_fee:174};
-        let s=final_result();
-        assert_eq!(settle_binary(&f,&s).unwrap(),
-            SettledPnl{net:4326,tier:EvidenceTier::VenueFinal});
-        let bad=BinaryFinal{independent:Some(s.venue_final.clone()),..s.clone()};
-        assert_eq!(settle_binary(&f,&bad),Err(Error::EvidenceNotIndependent));
-        let distinct=BinaryFinal{independent:Some(Evidence{
-            source_id:"independent-index".into(),content_sha256:"z".into()}),..s};
-        assert_eq!(settle_binary(&f,&distinct).unwrap().tier,EvidenceTier::VenueFinal);
+    #[test]
+    fn evidence_and_pnl() {
+        let f = ModeledBuyFill {
+            market: "M".into(),
+            rules_sha256: "r".into(),
+            side: Side::Yes,
+            price: p(5500),
+            quantity: 1,
+            entry_fee: 174,
+        };
+        let s = final_result();
+        assert_eq!(
+            settle_binary(&f, &s).unwrap(),
+            SettledPnl {
+                net: 4326,
+                tier: EvidenceTier::VenueFinal
+            }
+        );
+        let bad = BinaryFinal {
+            independent: Some(s.venue_final.clone()),
+            ..s.clone()
+        };
+        assert_eq!(settle_binary(&f, &bad), Err(Error::EvidenceNotIndependent));
+        let distinct = BinaryFinal {
+            independent: Some(Evidence {
+                source_id: "independent-index".into(),
+                content_sha256: "z".into(),
+            }),
+            ..s
+        };
+        assert_eq!(
+            settle_binary(&f, &distinct).unwrap().tier,
+            EvidenceTier::VenueFinal
+        );
     }
-    #[test] fn reject_rule_mismatch() {
-        let f=ModeledBuyFill{market:"M".into(),rules_sha256:"r2".into(),side:Side::Yes,
-            price:p(5000),quantity:1,entry_fee:0};
-        assert_eq!(settle_binary(&f,&final_result()),Err(Error::RuleMismatch));
+    #[test]
+    fn reject_rule_mismatch() {
+        let f = ModeledBuyFill {
+            market: "M".into(),
+            rules_sha256: "r2".into(),
+            side: Side::Yes,
+            price: p(5000),
+            quantity: 1,
+            entry_fee: 0,
+        };
+        assert_eq!(settle_binary(&f, &final_result()), Err(Error::RuleMismatch));
     }
 }
