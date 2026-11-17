@@ -29,6 +29,9 @@ param(
     [string]$HistoricalZipDirectory,
     [string]$CoreToolchain='1.78.0',
     [string]$HftToolchain='1.91.1',
+    # Standalone integration crates lock dependencies needing up to Rust 1.90
+    # (redb 4.5.0); 1.78 cannot build them. See each crate's rust-version.
+    [string]$IntegrationToolchain='1.91.1',
     [ValidateRange(1,4)][int]$CargoJobs=2,
     [ValidateRange(1,16)][int]$MaxTargetGiB=8
 )
@@ -242,7 +245,7 @@ try{
         branch=$observedBranch;origin=$origin;
         original_historical_input=$source;
         requested_at_utc=[DateTime]::UtcNow.ToString('o');
-        core_toolchain=$CoreToolchain;hft_toolchain=$HftToolchain;
+        core_toolchain=$CoreToolchain;integration_toolchain=$IntegrationToolchain;hft_toolchain=$HftToolchain;
         dependency_downloads=[bool]$AllowDependencyDownloads;
         historical_replay=[bool]$IncludeOriginalSourceAudit;
         multimarket_replay=[bool]$IncludeMultiMarketReplay;
@@ -286,7 +289,7 @@ try{
             }
             $tc=$HftToolchain
             Logged 'hft-rustc-version' 'rustup' @('run',$tc,'rustc','--version') $checkout
-        }else{$tc=$CoreToolchain}
+        }else{$tc=$IntegrationToolchain}
         Invoke-CargoValidation ("metadata-"+$integration.Name) $tc (@('metadata','--no-deps',
             '--format-version','1','--manifest-path',$manifest)+$script:offlineArgs)
         Invoke-CargoValidation ("fmt-"+$integration.Name) $tc @('fmt','--manifest-path',$manifest,
@@ -306,7 +309,7 @@ try{
         # flag and MUST precede '--'. '--ignored' is a TEST HARNESS flag.
         # Match the unique test name without '--exact' (which would
         # require the fully qualified 'tests::...' function path).
-        Invoke-CargoValidation 'disk-index-million-ids' $CoreToolchain (
+        Invoke-CargoValidation 'disk-index-million-ids' $IntegrationToolchain (
             @('test','--manifest-path',
               (Join-Path $checkout 'integrations/disk-identity/Cargo.toml'))+
             $script:offlineArgs+
@@ -318,7 +321,7 @@ try{
         Block 'power-loss-faults' 'REQUIRES_SEPARATE_OPERATOR_FAULT_ENVIRONMENT'
     }
     if($IncludeOriginalSourceAudit){
-        $env:RUSTUP_TOOLCHAIN=$CoreToolchain
+        $env:RUSTUP_TOOLCHAIN=$IntegrationToolchain
         $launcher=Join-Path $checkout 'integrations/source-loader/scripts/run-original-btc.ps1'
         if(Test-Path -LiteralPath $launcher){
             $historical=Join-Path $logs 'original-btc'
@@ -334,7 +337,7 @@ try{
     # explicit bounded ZIP files. It is never automatically triggered.
     if($IncludeMultiMarketReplay){
         $multi=Join-Path $checkout 'integrations/source-loader/Cargo.toml'
-        Invoke-CargoValidation 'multimarket-historical' $CoreToolchain (
+        Invoke-CargoValidation 'multimarket-historical' $IntegrationToolchain (
             @('run','--manifest-path',$multi,'--bin',
               'phoenix-multimarket-replay')+
             $script:offlineArgs+
