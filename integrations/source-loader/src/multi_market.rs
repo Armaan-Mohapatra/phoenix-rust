@@ -487,8 +487,8 @@ pub fn simulate_eligible_historical_order(
         || !market.report_exclusions.is_empty()
         || market.ticker != intent.market
         || market.ticker != source.market
-        || market.historical_fee_available == false
-        || market.contract_rules_available == false
+        || !market.historical_fee_available
+        || !market.contract_rules_available
     {
         return Err(Error::InvalidCheckpoint);
     }

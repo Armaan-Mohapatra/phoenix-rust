@@ -366,11 +366,7 @@ impl CausalPerpsBuffer {
                     .ok_or(Error::Overflow)?;
                 count += 1;
             }
-            let rms = if count > 0 {
-                Some(isqrt(squared / count))
-            } else {
-                None
-            };
+            let rms = squared.checked_div(count).map(isqrt);
             let mut flow: Option<i128> = None;
             let mut unknown = 0u32;
             for (_, _, qty, side) in &trades {

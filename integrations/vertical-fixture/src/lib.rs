@@ -10,7 +10,6 @@ mod tests {
     use phoenix_research::{Split, SplitPlan};
     use phoenix_settlement::{compare_window_averages, IndexTick, WindowRule};
     use phoenix_strategies::{FrozenSpec, ModelSignal, Recipe};
-    use sha2::{Digest, Sha256};
     use tempfile::TempDir;
 
     fn p(value: u16) -> Price {

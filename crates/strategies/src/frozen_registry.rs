@@ -169,6 +169,9 @@ impl ImmutableRegistry {
     pub fn get(&self, id: &str) -> Option<&Definition> {
         self.versions.get(id)
     }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub fn len(&self) -> usize {
         self.versions.len()
     }

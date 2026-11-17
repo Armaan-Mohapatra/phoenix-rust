@@ -3,6 +3,7 @@ name="phoenix-paper-orchestrator"
 version="0.1.0"
 publish=false
 edition="2021"
+rust-version="1.88" # minimum required by locked dependency: icu_collections 2.4.0
 
 [workspace]
 

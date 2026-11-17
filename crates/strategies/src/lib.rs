@@ -117,7 +117,7 @@ pub fn evaluate(
     }
     let implied = || {
         let bid = book.best_bid(Side::Yes)?.ticks();
-        Some(Price::new(((u32::from(bid) + u32::from(yes?.ticks())) / 2) as u16).ok()?)
+        Price::new(((u32::from(bid) + u32::from(yes?.ticks())) / 2) as u16).ok()
     };
     let q = match spec.recipe {
         Recipe::MarketImplied => implied().ok_or(Error::MissingQuote)?,

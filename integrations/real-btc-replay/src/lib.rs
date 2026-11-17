@@ -242,7 +242,7 @@ pub fn modeled_taker(side: Side, arrival_offset_ms: u32) -> Result<ModeledCase, 
         max_age_ns: 1_000_000_000,
         fee_rate: FeeRate::STANDARD_TAKER,
     };
-    let b = taker_buy(&o, &[book.clone()]).map_err(|_| PilotError::NoTakerFill)?;
+    let b = taker_buy(&o, std::slice::from_ref(&book)).map_err(|_| PilotError::NoTakerFill)?;
     if b.unfilled != 0 || b.fills.len() != 1 {
         return Err(PilotError::NoTakerFill);
     }
@@ -310,6 +310,8 @@ pub fn conservative_maker_is_blocked() -> Result<(), PilotError> {
         _ => Err(PilotError::UnverifiedInitialization),
     }
 }
+// Compile-time causal-ordering invariant (Rust 1.57+ const panic).
+const _: () = assert!(OPEN_AVG_KNOWN_NS < DECISION_NS);
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,7 +337,6 @@ mod tests {
             payout_known_at(CLOSE_AVG_KNOWN_NS).unwrap().winner,
             Side::Yes
         );
-        assert!(OPEN_AVG_KNOWN_NS < DECISION_NS);
     }
     #[test]
     fn actual_projected_books_are_monotonic_and_validate() {

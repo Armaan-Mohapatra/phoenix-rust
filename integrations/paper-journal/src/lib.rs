@@ -32,6 +32,9 @@ pub enum Side {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+// Journal events are low-frequency and serialized individually; boxing the
+// ArenaV2 payload would change every match site for no measured benefit.
+#[allow(clippy::large_enum_variant)]
 pub enum Event {
     Open {
         portfolio: String,

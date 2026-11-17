@@ -63,7 +63,7 @@ fn run() -> Result<(), String> {
     let zip_paths = args[3..].iter().map(PathBuf::from).collect::<Vec<_>>();
     let mut zip = ZipArchive::new(File::open(&zip_paths[0]).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
-    let mut entry = zip
+    let entry = zip
         .by_name("archive/curated/curation_catalog.jsonl")
         .map_err(|e| e.to_string())?;
     if entry.size() > MAX_CATALOG {

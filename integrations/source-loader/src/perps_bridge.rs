@@ -59,6 +59,7 @@ fn base(spec: &MarketSpec, explicit_other: Option<&str>) -> Result<String, Error
 /// A Perps feature is causal only when its local *receipt timestamp* precedes
 /// this market's actual documented decision cutoff. Kalshi replay evidence is
 /// still provisional unless separately certified; neither side is a fill.
+#[allow(clippy::too_many_arguments)] // explicit evidence inputs; a params struct is a follow-up API change
 pub fn join_market_features(
     spec: &MarketSpec,
     outcome: &MarketBatchOutcome,

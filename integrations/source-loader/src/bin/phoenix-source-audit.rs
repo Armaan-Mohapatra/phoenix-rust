@@ -40,7 +40,7 @@ fn run() -> Result<(), String> {
     }
     let mut z = ZipArchive::new(File::open(&zip_paths[0]).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
-    let mut source = z
+    let source = z
         .by_name("archive/curated/curation_catalog.jsonl")
         .map_err(|e| e.to_string())?;
     if source.size() > 4 * 1024 * 1024 {

@@ -106,6 +106,7 @@ pub fn replay_guard_from_journal(
 /// state is updated in memory only AFTER the durable archive confirms
 /// a newly added event. An ambiguous archive failure requires Journal
 /// reopening/replay; no unchecked retry is authorized.
+#[allow(clippy::too_many_arguments)] // explicit evidence inputs; a params struct is a follow-up API change
 pub fn preflight_and_append(
     journal: &mut Journal,
     guard: &mut Guard,

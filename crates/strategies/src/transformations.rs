@@ -2,10 +2,10 @@
 //! Uses frozen_registry Definition and research::experiments; no second
 //! simulator or reclassification of exploratory OOS as untouched.
 use crate::frozen_registry::{Definition, ImmutableRegistry, Lifecycle, Origin};
-use phoenix_research::experiments::{Evidence, ExperimentSpec, ImmutableExperiments};
+use phoenix_research::experiments::{ExperimentSpec, ImmutableExperiments};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 fn sha(s: &[u8]) -> String {
     format!("{:x}", Sha256::digest(s))
 }
@@ -155,7 +155,7 @@ impl Transform {
                     && self.value <= 10_000
                     && self
                         .secondary
-                        .is_some_and(|v| v >= 0 && v <= 10_000 && v + self.value == 10_000)
+                        .is_some_and(|v| (0..=10_000).contains(&v) && v + self.value == 10_000)
                     && self.other_parent_id.as_ref().is_some_and(|x| !x.is_empty())
             }
         };

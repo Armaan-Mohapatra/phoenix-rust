@@ -3,7 +3,7 @@
 //! A committed manifest is the publication marker; orphan/temp bytes are
 //! quarantined, never silently promoted or deleted.
 use fs2::FileExt;
-use phoenix_parquet_batch::{encode_finalized, verify_finalized, Manifest as ParquetManifest, Row};
+use phoenix_parquet_batch::{encode_finalized, Manifest as ParquetManifest, Row};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
@@ -18,7 +18,7 @@ pub const MAX_PARTITIONS: usize = 2_000; // legacy RAM mode
 pub const MAX_EXTERNAL_PARTITIONS: usize = 100_000; // configurable bounded disk mode
 pub const MAX_INDEXED_EVENTS: usize = 250_000;
 pub const MAX_PARTITION_BYTES: u64 = 8 * 1024 * 1024;
-pub const MAX_MANIFEST_BYTES: u64 = 1 * 1024 * 1024;
+pub const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MARKER: &str = "PHOENIX_RESEARCH_OUTPUT_ONLY";
 const FORMAT: u32 = 1;
 
@@ -42,6 +42,9 @@ pub enum Error {
     PublicationUncertain,
     InjectedFault,
 }
+/// Caller-supplied external event-ID lookup used during index replay.
+type ExternalLookup<'a> = dyn FnMut(&str) -> Result<Option<String>, Error> + 'a;
+
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Self::Io(e)
@@ -330,7 +333,7 @@ fn staged_write(
         return Err(Error::InjectedStorage(failure));
     }
     if during {
-        let take = (bytes.len() + 1) / 2;
+        let take = bytes.len().div_ceil(2);
         file.write_all(&bytes[..take])?;
         return Err(Error::InjectedStorage(StorageFailure::InterruptedWrite));
     }
@@ -392,8 +395,11 @@ impl Archive {
         }
         let root = fs::canonicalize(root)?;
         reject_reparse(&root.join(".writer-lock"))?;
+        // The writer lock is a persistent advisory-lock handle; it must
+        // never be truncated.
         let f = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(root.join(".writer-lock"))?;
@@ -577,7 +583,7 @@ impl Archive {
         scope: SourceScope,
         events: &[EventRow],
         fault: Fault,
-        mut lookup: Option<&mut dyn FnMut(&str) -> Result<Option<String>, Error>>,
+        mut lookup: Option<&mut ExternalLookup<'_>>,
     ) -> Result<PublishResult, Error> {
         if events.is_empty()
             || events.len() > MAX_ROWS_PER_PARTITION
@@ -1396,7 +1402,7 @@ mod phase2_archive_fault_tests {
         assert!(matches!(Archive::open(&alias), Err(Error::UnsafePath)));
     }
     #[test]
-    fn IO_error_classification_and_uncertain_state_are_explicit() {
+    fn io_error_classification_and_uncertain_state_are_explicit() {
         assert_eq!(
             Error::InjectedStorage(StorageFailure::DiskFull).storage_class(),
             StorageFailure::DiskFull

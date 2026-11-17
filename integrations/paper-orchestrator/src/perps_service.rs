@@ -61,6 +61,7 @@ impl PerpsFeatureService {
             .ok_or(Error::Capacity)?;
         Ok(accepted)
     }
+    #[allow(clippy::too_many_arguments)] // explicit evidence inputs; a params struct is a follow-up API change
     pub fn joined_features(
         &self,
         spec: &MarketSpec,

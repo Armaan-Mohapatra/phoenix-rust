@@ -608,8 +608,7 @@ pub fn clustered_bootstrap(
 ) -> Result<ClusterInterval, Error> {
     if rows.is_empty()
         || rows.len() > MAX_ROWS
-        || resamples < 100
-        || resamples > 4096
+        || !(100..=4096).contains(&resamples)
         || comparison_count == 0
         || comparison_count > 10_000
     {

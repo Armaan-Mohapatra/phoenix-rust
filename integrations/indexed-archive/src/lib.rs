@@ -2,11 +2,11 @@
 //! No production collector, live SQLite/WAL or exchange endpoints.
 use phoenix_disk_identity::{Index, IndexFault};
 use phoenix_durable_archive::recovery::{Assurance, PublicationState, RecoverySummary};
+use phoenix_durable_archive::Fault as ArchiveFault;
 use phoenix_durable_archive::{
     Archive, EventRow, PublishResult, SealedPartition, SourceScope, MAX_EXTERNAL_PARTITIONS,
     MAX_MANIFEST_BYTES,
 };
-use phoenix_durable_archive::{Durability, Fault as ArchiveFault};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},

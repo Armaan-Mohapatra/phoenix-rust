@@ -113,6 +113,7 @@ fn base(
 /// Execute exactly ONE synthetic or source-evidence-gated *paper* cycle.
 /// Must be invoked only after portfolio creation and isolated risk-guard init.
 /// No automatic collector/service/scheduler or exchange connection exists.
+#[allow(clippy::too_many_arguments)] // explicit evidence inputs; a params struct is a follow-up API change
 pub fn run_cycle(
     mode: Mode,
     config: &CycleConfig,
@@ -410,6 +411,7 @@ pub fn run_cycle(
 /// Evidence-preserving adapter to the existing Phase 10 researcher. It
 /// cannot report realized modeled profits without a separately authenticated
 /// settlement, and never substitutes zero for missing net/fee evidence.
+#[allow(clippy::too_many_arguments)] // explicit evidence inputs; a params struct is a follow-up API change
 pub fn to_pending_research_sample(
     outcome: &Outcome,
     portfolio: &str,

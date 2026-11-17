@@ -186,14 +186,13 @@ pub fn simulate_source_window(
     {
         return Err(Error::UnverifiedSource);
     }
-    if o.role == LiquidityRole::Maker {
-        if !proof.tape_coverage_verified
+    if o.role == LiquidityRole::Maker
+        && (!proof.tape_coverage_verified
             || !tape.complete_for_window
             || proof.tape_first_received_ns > o.arrival_ns
-            || proof.tape_last_received_ns < o.deadline_ns
-        {
-            return Err(Error::IncompleteTape);
-        }
+            || proof.tape_last_received_ns < o.deadline_ns)
+    {
+        return Err(Error::IncompleteTape);
     }
     let mut r = simulate(o, books, tape, fee)?;
     r.assumptions
@@ -651,7 +650,7 @@ mod tests {
                 &[b()],
                 TradeTape {
                     complete_for_window: false,
-                    prints: &[print.clone()]
+                    prints: std::slice::from_ref(&print)
                 },
                 &FixtureFee
             )

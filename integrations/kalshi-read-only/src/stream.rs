@@ -307,8 +307,10 @@ mod tests {
     }
     #[test]
     fn backpressure_and_shutdown_never_emit_order_routes() {
-        let mut cfg = StreamConfig::default();
-        cfg.max_queue = 1;
+        let cfg = StreamConfig {
+            max_queue: 1,
+            ..StreamConfig::default()
+        };
         let mut stream = ReadOnlyStream::new(cfg).unwrap();
         stream
             .ingest("c", &snap(1), 1_100_000_000, 1_100_000_000)

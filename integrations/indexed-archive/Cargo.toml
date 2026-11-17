@@ -3,6 +3,7 @@ name="phoenix-indexed-archive"
 version="0.1.0"
 publish=false
 edition="2021"
+rust-version="1.90" # minimum required by locked dependency: redb 4.5.0
 
 [workspace]
 

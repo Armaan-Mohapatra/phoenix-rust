@@ -675,9 +675,15 @@ mod tests {
             last_received_ns: 200,
             declared_rows: 2,
         };
-        let selected =
-            select_indexed_partitions(&[row.clone()], "VENUE_A", "BTCUSDT", 110, 150, &digest)
-                .unwrap();
+        let selected = select_indexed_partitions(
+            std::slice::from_ref(&row),
+            "VENUE_A",
+            "BTCUSDT",
+            110,
+            150,
+            &digest,
+        )
+        .unwrap();
         assert_eq!(selected.len(), 1);
         let mut invalid = row;
         invalid.member = "../active.sqlite-wal".into();

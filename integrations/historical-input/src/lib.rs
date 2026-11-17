@@ -3,15 +3,11 @@
 //! supply mappings locally; unit tests construct synthetic Parquet fixtures.
 pub mod perps;
 pub mod perps_features;
-use arrow_array::{
-    Array, ArrayRef, BinaryArray, Int64Array, RecordBatch, StringArray, UInt64Array,
-};
-use arrow_schema::{DataType, Field, Schema};
+use arrow_array::{Array, BinaryArray, Int64Array, RecordBatch, StringArray, UInt64Array};
 use bytes::Bytes;
 use chrono::DateTime;
-use parquet::arrow::{arrow_reader::ParquetRecordBatchReaderBuilder, ArrowWriter};
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use sha2::{Digest, Sha256};
-use std::sync::Arc;
 
 pub const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_ROWS: usize = 1024;
@@ -292,6 +288,10 @@ pub fn decimal_exact(value: &str, scale: u32) -> Result<i128, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow_array::ArrayRef;
+    use arrow_schema::{DataType, Field, Schema};
+    use parquet::arrow::ArrowWriter;
+    use std::sync::Arc;
     fn map() -> ColumnMapping<'static> {
         ColumnMapping {
             feed: "source",

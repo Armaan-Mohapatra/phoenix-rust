@@ -5,7 +5,7 @@ use phoenix_domain::EvidenceTier;
 use phoenix_pipeline::{Evaluation, Stage};
 use phoenix_research::Split;
 use serde::Serialize;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 pub type Money = i128;
 #[derive(Debug, Clone)]

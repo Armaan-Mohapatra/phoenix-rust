@@ -223,7 +223,7 @@ fn sha(data: &[u8]) -> String {
 fn valid_member(s: &str) -> bool {
     s.starts_with(PREFIX)
         && s.ends_with(".parquet")
-        && !s.split('/').any(|p| p == "" || p == "." || p == "..")
+        && !s.split('/').any(|p| p.is_empty() || p == "." || p == "..")
 }
 pub fn catalog(data: &[u8]) -> Result<HashMap<String, ManifestEntry>, Error> {
     if data.len() > CATALOG_LIMIT {
@@ -259,7 +259,7 @@ fn member(zips: &[PathBuf], name: &str) -> Result<Vec<u8>, Error> {
         let mut zip = ZipArchive::new(f).map_err(|e| Error::Zip(e.to_string()))?;
         let attempt = zip.by_name(name);
         match attempt {
-            Ok(mut source) => {
+            Ok(source) => {
                 if source.size() > MEMBER_LIMIT || source.is_dir() {
                     return Err(Error::TooLarge);
                 }
@@ -865,13 +865,13 @@ pub mod forensic {
                         self.status = Initialization::InvalidBook;
                         return Err(Error::NegativeDepth);
                     }
-                    if q > 0 {
-                        if opposite_best.is_some_and(|p| {
+                    if q > 0
+                        && opposite_best.is_some_and(|p| {
                             u32::from(p.ticks()) + u32::from(d.price.ticks()) > 10_000
-                        }) {
-                            self.status = Initialization::InvalidBook;
-                            return Err(Error::InvalidSnapshot);
-                        }
+                        })
+                    {
+                        self.status = Initialization::InvalidBook;
+                        return Err(Error::InvalidSnapshot);
                     }
                     if q == 0 {
                         m.remove(&d.price);

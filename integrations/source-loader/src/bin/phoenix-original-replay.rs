@@ -47,7 +47,7 @@ fn run() -> Result<(), String> {
     }
     let mut archive = ZipArchive::new(File::open(&zip_paths[0]).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
-    let mut entry = archive
+    let entry = archive
         .by_name("archive/curated/curation_catalog.jsonl")
         .map_err(|e| e.to_string())?;
     if entry.size() > MAX_CATALOG as u64 {
