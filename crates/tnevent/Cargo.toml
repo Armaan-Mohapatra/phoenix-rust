@@ -1,0 +1,20 @@
+[package]
+name = "phoenix-tnevent"
+version = "0.1.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+description = "Read-only, bounded decoder and book verifier for the TradingNext collector's TNEVENT v1/v2 segments."
+
+[dependencies]
+phoenix-domain = { path = "../domain" }
+phoenix-campaign = { path = "../campaign" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+crc32fast = "1"
+
+[[bin]]
+name = "phoenix-tnevent"
+path = "src/bin/phoenix-tnevent.rs"
