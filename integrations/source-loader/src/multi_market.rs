@@ -359,6 +359,19 @@ mod tests{
             official_final_sha256:None,independent_primary_sha256:None,
             additional_family_schema_sha256:None}
     }
+    /// The curation catalog is JSONL: exactly one object per physical line.
+    /// A pretty-printed, multi-line object is correctly rejected by
+    /// `catalog`, so fixtures must be a single line.
+    fn jsonl_catalog()->String{
+        format!(r#"{{"parquet":"curated/raw_events/x.parquet","parquet_sha256":"{}","rows":2}}"#,
+            "b".repeat(64))
+    }
+    #[test]fn multi_line_catalog_object_is_rejected_not_silently_joined(){
+        let wrapped=jsonl_catalog().replacen(',',",\n",1);
+        assert!(matches!(crate::catalog(wrapped.as_bytes()),
+            Err(crate::Error::InvalidCatalog)));
+        assert_eq!(crate::catalog(jsonl_catalog().as_bytes()).unwrap().len(),1);
+    }
     #[test]fn four_known_families_have_separate_explicit_series(){
         for (ticker,asset,series) in [
             ("BTC-1",Asset::Btc,"KXBTC15M"),
@@ -406,8 +419,7 @@ mod tests{
     }
     #[test]fn indexed_discovery_rejects_unknown_and_conflicting_members(){
         let member="archive/curated/raw_events/x.parquet";
-        let catalog=format!(r#"{{"parquet":"curated/raw_events/x.parquet",
-            "parquet_sha256":"{}","rows":2}}"#,"b".repeat(64));
+        let catalog=jsonl_catalog();
         let idx=[IndexedPartition{ticker:"BTC".into(),member:member.into(),
             member_sha256:"b".repeat(64),first_received_ns:10,
             last_received_ns:20,independent_index_sha256:"d".repeat(64)}];
@@ -443,11 +455,10 @@ mod tests{
             &"d".repeat(64),&entries));
     }
     #[test]fn duplicate_market_and_batch_bounds_stop_before_zip_io(){
-        let spec=spec("BTC",Asset::Btc,"KXBTC15M");
-        let catalog=format!(r#"{{"parquet":"curated/raw_events/x.parquet",
-            "parquet_sha256":"{}","rows":2}}"#,"b".repeat(64));
+        let one=spec("BTC",Asset::Btc,"KXBTC15M");
+        let catalog=jsonl_catalog();
         let paths=vec![PathBuf::from("synthetic-not-on-disk.zip")];
-        assert!(matches!(run_batch(&[spec.clone(),spec],catalog.as_bytes(),
+        assert!(matches!(run_batch(&[one.clone(),one],catalog.as_bytes(),
             &paths,&"d".repeat(64),&[]),Err(Error::DuplicateMarket)));
         let many=vec![spec("BTC",Asset::Btc,"KXBTC15M");5];
         assert!(matches!(run_batch(&many,catalog.as_bytes(),

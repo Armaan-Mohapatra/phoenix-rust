@@ -32,7 +32,7 @@ pub struct CanonicalRecord {
     pub payload:Vec<u8>,pub stable_event_id:String,
     pub row_sha256:String,pub identity_quality:IdentityQuality,
 }
-#[derive(Debug)]
+#[derive(Debug,Clone,PartialEq,Eq)]
 pub enum Error {
     FileTooLarge,TooManyRows,MissingColumn(String),InvalidType(String),
     MissingValue(String),InvalidTimestamp,InvalidSequence,FutureExchangeTime,

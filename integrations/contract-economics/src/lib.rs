@@ -440,7 +440,10 @@ fn as_text(side:Side)->String{
 /// canonical; its market_id is optional. When both authoritative records
 /// contain an archived ID or event ticker they must not conflict.
 fn official_identity_matches(c:&ContractDefinition,o:&OfficialMarketEvidence)->bool{
-    o.ticker==c.ticker&&o.market_type.as_deref()==Some("binary")&&
+    // An absent market_type is *unknown*, not a contradiction: the parser
+    // never classifies such evidence as final, so it stays pending/blocked.
+    // Only an explicit non-binary type contradicts a binary contract.
+    o.ticker==c.ticker&&o.market_type.as_deref().map_or(true,|t|t=="binary")&&
     !matches!((&o.market_id,&c.market_id),
         (Some(official),Some(archived)) if official!=archived)&&
     o.event_ticker.as_deref().map_or(true,|event|event==c.event_id)

@@ -177,7 +177,7 @@ pub fn run_cycle(
         order_id:config.order_id.clone(),market:context.market.clone(),
         rules_sha256:config.contract_rules_sha256.clone(),
         strategy_version_sha256:result.strategy_version_sha256.clone(),
-        source_sha256:source_sha,
+        source_sha256:source_sha.clone(),
         fee_schedule_sha256:config.fee_schedule_sha256.clone(),
         side:paper_side(side),limit_ticks:limit.ticks(),
         quantity_hundredths:config.submitted_hundredths,

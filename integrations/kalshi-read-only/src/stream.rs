@@ -12,7 +12,7 @@ pub enum Freshness {Fresh,Stale,Future}
 pub enum State{AwaitingSnapshot,Provisional,Quarantined}
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub enum Classification{Snapshot,Delta,Trade,Unhandled}
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,PartialEq,Eq)]
 pub struct WireObservation{
     pub connection_id:String,pub subscription_sid:u64,
     pub sequence:u64,pub market:String,pub received_ns:i64,

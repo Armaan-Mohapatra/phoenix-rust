@@ -267,7 +267,7 @@ pub fn publish_read_only_observation(root:&str,
     let projected=(e.raw.len() as u64).checked_add(32*1024)
         .ok_or(Error::Backpressure)?;
     budget.reserve(projected)?;
-    let archive=Archive::open(Path::new(root))
+    let mut archive=Archive::open(Path::new(root))
         .map_err(|x|Error::Archive(format!("{x:?}")))?;
     let published=archive.publish(scope,&[event])
         .map_err(|x|Error::Archive(format!("{x:?}")))?;

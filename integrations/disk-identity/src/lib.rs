@@ -154,7 +154,7 @@ impl Index {
         let tx=self.db.begin_read().map_err(io)?;
         let table=tx.open_table(PARTITIONS).map_err(io)?;
         let mut range=if let Some(cursor)=after{
-            table.range((std::ops::Bound::Excluded(cursor),
+            table.range::<&str>((std::ops::Bound::Excluded(cursor),
                 std::ops::Bound::Unbounded)).map_err(io)?
         }else{
             table.iter().map_err(io)?
@@ -203,8 +203,9 @@ impl Index {
         let tx=self.db.begin_write().map_err(io)?;
         let existing={
             let table=tx.open_table(PARTITIONS).map_err(io)?;
-            table.get(partition_sha).map_err(io)?
-                .map(|guard|guard.value().to_owned())
+            let found=table.get(partition_sha).map_err(io)?
+                .map(|guard|guard.value().to_owned());
+            found
         };
         if let Some(existing)=existing {
             if existing!=encoded{return Err(Error::ConflictingPartition);}

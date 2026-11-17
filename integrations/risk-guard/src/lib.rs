@@ -230,9 +230,17 @@ mod tests{
             proposed_notional:5_000_000,current_market_exposure:0,
             current_portfolio_exposure:0,quote_received_ns:99,
             max_quote_age_ns:10};
-        assert_eq!(guard.preflight(&intent),Decision::Allow);
-        assert_eq!(guard.preflight(&Intent{proposed_notional:5_100_001,
-            id:"B",at_ns:101,..intent}),Decision::Block(Block::SingleOrderLimit));
+        // 5.00 USD equals the promoted single-order limit exactly, so it is
+        // not blocked; it is above the promoted 2.00 USD large-order
+        // threshold, so the two-stage guard demands a depth check.
+        assert_eq!(guard.preflight(&intent),Decision::RequireDepth);
+        // One microUSD above the promoted limit is blocked: no truncation.
+        assert_eq!(guard.preflight(&Intent{proposed_notional:5_000_001,
+            id:"B",at_ns:101,..intent.clone()}),
+            Decision::Block(Block::SingleOrderLimit));
+        // One microUSD below the promoted large threshold is a plain allow.
+        assert_eq!(guard.preflight(&Intent{proposed_notional:1_999_999,
+            id:"C",at_ns:102,quote_received_ns:101,..intent}),Decision::Allow);
     }
     #[test]fn lossless_configuration_clone_replay_and_cooldown_are_stable(){
         let mut g=Guard::new_micro(cfg()).unwrap();
