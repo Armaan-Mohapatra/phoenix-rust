@@ -90,7 +90,16 @@ fn inspect(abs: &Path) -> Result<(PathBuf, PathBuf), PathError> {
         match comp {
             Component::ParentDir => return Err(PathError::Traversal),
             Component::CurDir => continue,
-            _ => {}
+            // Not stat-able as links: stat of a verbatim prefix (`\\?\C:`) opens
+            // the raw volume and fails with ERROR_INVALID_FUNCTION on Windows.
+            Component::Prefix(_) | Component::RootDir => {
+                cur.push(comp);
+                continue;
+            }
+            // Verbatim paths keep `..`/`.` as literal Normal components.
+            Component::Normal(n) if n == ".." => return Err(PathError::Traversal),
+            Component::Normal(n) if n == "." => continue,
+            Component::Normal(_) => {}
         }
         if missing {
             rest.push(comp);
@@ -269,7 +278,10 @@ mod tests {
     #[test]
     fn traversal_is_refused() {
         let d = scratch("trav");
-        let p = d.join("a").join("..").join("b");
+        // Built from a string: `join` on a Windows verbatim (`\\?\`) base
+        // normalizes `..` away, which would hide the traversal under test.
+        let sep = std::path::MAIN_SEPARATOR;
+        let p = PathBuf::from(format!("{}{sep}a{sep}..{sep}b", d.display()));
         assert_eq!(prepare_output_dir(&p, &[]), Err(PathError::Traversal));
     }
 
