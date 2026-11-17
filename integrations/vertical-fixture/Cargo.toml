@@ -3,6 +3,7 @@ name = "phoenix-vertical-fixture"
 version = "0.1.0"
 publish = false
 edition = "2021"
+rust-version="1.85" # minimum required by locked dependency: getrandom 0.4.3
 
 [workspace]
 
