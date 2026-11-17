@@ -189,6 +189,9 @@ pub struct Resources {
     pub snapshots: u64,
     pub passes: u32,
     pub raw_bytes_read: u64,
+    /// Bytes read from the binary case cache (0 without `--cache-dir`).
+    pub cache_bytes_read: u64,
+    pub case_cache: Option<crate::source::CacheStatus>,
     pub decisions_evaluated: u64,
     pub wall_ms: u128,
     pub decisions_per_second: f64,
@@ -652,6 +655,8 @@ pub fn run_source(
             snapshots: scan.snapshots,
             passes,
             raw_bytes_read: src.raw_bytes_read(),
+            cache_bytes_read: src.cache_bytes_read(),
+            case_cache: src.cache_status(),
             decisions_evaluated: decisions,
             wall_ms: wall,
             decisions_per_second: decisions as f64 / (wall.max(1) as f64 / 1000.0),
@@ -939,8 +944,8 @@ mod tests {
     #[test]
     fn streaming_file_engine_matches_in_memory_engine_exactly() {
         let cases = generate(&Scenario::lagged_quotes(3, 6, 99));
-        let dir = std::env::temp_dir().join(format!("phoenix-stream-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = TempDir::new("stream");
+        let dir = &tmp.0;
         let path = dir.join("cases.jsonl");
         let text: String = cases.iter().map(|c| to_jsonl_line(c) + "\n").collect();
         std::fs::write(&path, &text).unwrap();
@@ -998,8 +1003,8 @@ mod tests {
             }
         }
         let cases = generate(&Scenario::efficient(1, 2, 5));
-        let dir = std::env::temp_dir().join(format!("phoenix-mut-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = TempDir::new("mut");
+        let dir = &tmp.0;
         let path = dir.join("m.jsonl");
         std::fs::write(
             &path,
@@ -1022,5 +1027,138 @@ mod tests {
             &mut |_| Ok(()),
         );
         assert_eq!(e.unwrap_err(), CampaignError::SourceChanged);
+    }
+
+    /// Removes its directory on drop so fixtures never pile up in the temp dir.
+    struct TempDir(std::path::PathBuf);
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let d = std::env::temp_dir().join(format!("phoenix-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).unwrap();
+            Self(d)
+        }
+    }
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    type Fixture = (
+        Vec<MarketCase>,
+        std::path::PathBuf,
+        std::path::PathBuf,
+        TempDir,
+    );
+    fn cached_fixture(tag: &str) -> Fixture {
+        let cases = generate(&Scenario::lagged_quotes(3, 6, 99));
+        let tmp = TempDir::new(&format!("cache-{tag}"));
+        let path = tmp.0.join("cases.jsonl");
+        let text: String = cases.iter().map(|c| to_jsonl_line(c) + "\n").collect();
+        std::fs::write(&path, text).unwrap();
+        let cache = tmp.0.join("cache");
+        (cases, path, cache, tmp)
+    }
+
+    fn run_cached(
+        path: &std::path::Path,
+        cache: &std::path::Path,
+    ) -> Result<Report, CampaignError> {
+        let cfg = CampaignConfig {
+            batch_size: 64,
+            ..Default::default()
+        };
+        let mut src = crate::source::CachedSource::new(path.to_path_buf(), cache.to_path_buf(), 64);
+        run_source(
+            &mut src,
+            &default_grid(),
+            &cfg,
+            EvidenceClass::SyntheticEngineCheck,
+            &mut |_| Ok(()),
+        )
+    }
+
+    #[test]
+    fn cached_source_matches_in_memory_cold_and_warm() {
+        use crate::source::CacheStatus;
+        let (cases, path, cache, _tmp) = cached_fixture("parity");
+        let cfg = CampaignConfig {
+            batch_size: 64,
+            ..Default::default()
+        };
+        let mem = run(&cases, &default_grid(), &cfg).unwrap();
+        let raw_len = std::fs::metadata(&path).unwrap().len();
+        let cold = run_cached(&path, &cache).unwrap();
+        let warm = run_cached(&path, &cache).unwrap();
+        for r in [&cold, &warm] {
+            assert_eq!(economic_fingerprint(&mem), economic_fingerprint(r));
+            assert_eq!(
+                serde_json::to_string(&mem.results).unwrap(),
+                serde_json::to_string(&r.results).unwrap()
+            );
+            assert_eq!(r.resources.passes, 4);
+        }
+        assert_eq!(cold.raw_input_sha256, warm.raw_input_sha256);
+        assert_eq!(cold.resources.case_cache, Some(CacheStatus::Built));
+        assert_eq!(warm.resources.case_cache, Some(CacheStatus::Hit));
+        // cold: hash pass + one JSON decode; warm: hash pass only.
+        assert_eq!(cold.resources.raw_bytes_read, raw_len * 2);
+        assert_eq!(warm.resources.raw_bytes_read, raw_len);
+        assert!(warm.resources.cache_bytes_read > 0);
+        // The cache bytes are the normalized stream itself.
+        let bin = std::fs::read_dir(&cache)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.extension().is_some_and(|x| x == "bin"))
+            .unwrap();
+        let digest = format!("{:x}", Sha256::digest(std::fs::read(&bin).unwrap()));
+        assert_eq!(digest, mem.normalized_input_sha256);
+    }
+
+    #[test]
+    fn corrupt_cache_is_refused() {
+        let (_, path, cache, _tmp) = cached_fixture("corrupt");
+        run_cached(&path, &cache).unwrap();
+        let bin = std::fs::read_dir(&cache)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.extension().is_some_and(|x| x == "bin"))
+            .unwrap();
+        let mut b = std::fs::read(&bin).unwrap();
+        // A quantity byte deep inside: still decodes, so only the hash catches it.
+        let k = b.len() / 2;
+        b[k] ^= 0x01;
+        std::fs::write(&bin, b).unwrap();
+        match run_cached(&path, &cache) {
+            Err(CampaignError::Source(m)) => assert!(m.contains("failed verification"), "{m}"),
+            other => panic!("corrupt cache accepted: {:?}", other.map(|r| r.resources)),
+        }
+    }
+
+    #[test]
+    fn cached_source_detects_raw_change_between_passes() {
+        let (_, path, cache, _tmp) = cached_fixture("mutate");
+        let mut src = crate::source::CachedSource::new(path.clone(), cache, 32);
+        src.visit(&mut |_| Ok(())).unwrap();
+        let mut t = std::fs::read_to_string(&path).unwrap();
+        t.push('\n');
+        std::fs::write(&path, t).unwrap();
+        assert_eq!(
+            src.visit(&mut |_| Ok(())).unwrap_err(),
+            CampaignError::SourceChanged
+        );
+    }
+
+    #[test]
+    fn different_raw_bytes_never_reuse_a_cache() {
+        use crate::source::CacheStatus;
+        let (_, path, cache, _tmp) = cached_fixture("rekey");
+        run_cached(&path, &cache).unwrap();
+        let mut t = std::fs::read_to_string(&path).unwrap();
+        t.push('\n'); // same cases, different raw bytes
+        std::fs::write(&path, t).unwrap();
+        let r = run_cached(&path, &cache).unwrap();
+        assert_eq!(r.resources.case_cache, Some(CacheStatus::Built));
     }
 }

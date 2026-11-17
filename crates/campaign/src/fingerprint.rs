@@ -11,32 +11,50 @@
 //!   change does.
 //! * `experiment_sha256`: normalized input + grid + campaign config + code.
 //! * `code_revision`: crate version, strategy revision and git commit.
-use crate::{MarketCase, Provenance};
-use phoenix_domain::{Level, Side};
+use crate::{MarketCase, Provenance, Snapshot};
+use phoenix_domain::{Book, Level, Price, Side};
 use sha2::{Digest, Sha256};
+use std::io::Read;
 
 pub const NORMALIZED_SCHEMA: &str = "phoenix-normalized-case-v1";
 
-fn s(h: &mut Sha256, v: &str) {
-    h.update((v.len() as u64).to_le_bytes());
-    h.update(v.as_bytes());
+/// Byte sink for the canonical encoding: the SHA-256 hasher (identity) and
+/// the binary case cache share one encoder, so the cache file's bytes are
+/// exactly what `normalized_input_sha256` hashes.
+pub trait Sink {
+    fn put(&mut self, b: &[u8]);
 }
-fn i(h: &mut Sha256, v: i64) {
-    h.update(v.to_le_bytes());
+impl Sink for Sha256 {
+    fn put(&mut self, b: &[u8]) {
+        Digest::update(self, b);
+    }
 }
-fn u(h: &mut Sha256, v: u64) {
-    h.update(v.to_le_bytes());
+impl Sink for Vec<u8> {
+    fn put(&mut self, b: &[u8]) {
+        self.extend_from_slice(b);
+    }
 }
-fn oi(h: &mut Sha256, v: Option<i64>) {
+
+fn s(h: &mut impl Sink, v: &str) {
+    h.put(&(v.len() as u64).to_le_bytes());
+    h.put(v.as_bytes());
+}
+fn i(h: &mut impl Sink, v: i64) {
+    h.put(&v.to_le_bytes());
+}
+fn u(h: &mut impl Sink, v: u64) {
+    h.put(&v.to_le_bytes());
+}
+fn oi(h: &mut impl Sink, v: Option<i64>) {
     match v {
-        None => h.update([0u8]),
+        None => h.put(&[0u8]),
         Some(x) => {
-            h.update([1u8]);
+            h.put(&[1u8]);
             i(h, x)
         }
     }
 }
-fn levels(h: &mut Sha256, l: &[Level]) {
+fn levels(h: &mut impl Sink, l: &[Level]) {
     u(h, l.len() as u64);
     for x in l {
         u(h, u64::from(x.price.ticks()));
@@ -44,8 +62,16 @@ fn levels(h: &mut Sha256, l: &[Level]) {
     }
 }
 
+/// Stream header and trailer around the encoded cases.
+pub fn encode_header(h: &mut impl Sink) {
+    s(h, NORMALIZED_SCHEMA);
+}
+pub fn encode_trailer(h: &mut impl Sink, cases: u64) {
+    u(h, cases);
+}
+
 /// Feeds one case's canonical encoding into `h`.
-pub fn encode_case(h: &mut Sha256, c: &MarketCase) {
+pub fn encode_case(h: &mut impl Sink, c: &MarketCase) {
     for f in [&c.market, &c.event, &c.cluster, &c.asset] {
         s(h, f);
     }
@@ -54,12 +80,12 @@ pub fn encode_case(h: &mut Sha256, c: &MarketCase) {
     i(h, c.strike_cents);
     s(h, &c.rules_sha256);
     s(h, &c.source_sha256);
-    h.update([match c.provenance {
+    h.put(&[match c.provenance {
         Provenance::Synthetic => 1u8,
         Provenance::OperatorNormalized => 2,
         Provenance::OperatorUnverified => 3,
     }]);
-    h.update([match c.winner {
+    h.put(&[match c.winner {
         None => 0u8,
         Some(Side::Yes) => 1,
         Some(Side::No) => 2,
@@ -80,6 +106,131 @@ pub fn encode_case(h: &mut Sha256, c: &MarketCase) {
     }
 }
 
+// ---- inverse of the encoding above (binary case cache) ----
+// Caps bound allocations before the end-of-stream hash check can run.
+const MAX_STR: u64 = crate::input::MAX_LINE_BYTES as u64;
+const MAX_LEVELS: u64 = 10_001; // strictly decreasing prices in 0..=10000
+
+fn bad(why: &str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, why.to_string())
+}
+fn rd<const N: usize>(r: &mut impl Read) -> std::io::Result<[u8; N]> {
+    let mut b = [0u8; N];
+    r.read_exact(&mut b)?;
+    Ok(b)
+}
+fn ru(r: &mut impl Read) -> std::io::Result<u64> {
+    Ok(u64::from_le_bytes(rd(r)?))
+}
+fn ri(r: &mut impl Read) -> std::io::Result<i64> {
+    Ok(i64::from_le_bytes(rd(r)?))
+}
+fn rs(r: &mut impl Read) -> std::io::Result<String> {
+    let n = ru(r)?;
+    if n > MAX_STR {
+        return Err(bad("string too long"));
+    }
+    let mut b = vec![0u8; n as usize];
+    r.read_exact(&mut b)?;
+    String::from_utf8(b).map_err(|_| bad("invalid utf-8"))
+}
+fn roi(r: &mut impl Read) -> std::io::Result<Option<i64>> {
+    match rd::<1>(r)?[0] {
+        0 => Ok(None),
+        1 => ri(r).map(Some),
+        _ => Err(bad("option tag")),
+    }
+}
+fn rlevels(r: &mut impl Read) -> std::io::Result<Vec<Level>> {
+    let n = ru(r)?;
+    if n > MAX_LEVELS {
+        return Err(bad("too many levels"));
+    }
+    (0..n)
+        .map(|_| {
+            let t = u16::try_from(ru(r)?).map_err(|_| bad("price"))?;
+            let price = Price::new(t).map_err(|_| bad("price"))?;
+            Ok(Level {
+                price,
+                quantity: ru(r)?,
+            })
+        })
+        .collect()
+}
+
+pub fn decode_header(r: &mut impl Read) -> std::io::Result<()> {
+    if rs(r)? != NORMALIZED_SCHEMA {
+        return Err(bad("normalized schema mismatch"));
+    }
+    Ok(())
+}
+pub fn decode_trailer(r: &mut impl Read) -> std::io::Result<u64> {
+    ru(r)
+}
+
+/// Inverse of [`encode_case`].
+pub fn decode_case(r: &mut impl Read) -> std::io::Result<MarketCase> {
+    let (market, event, cluster, asset) = (rs(r)?, rs(r)?, rs(r)?, rs(r)?);
+    let (open_ns, expiration_ns, strike_cents) = (ri(r)?, ri(r)?, ri(r)?);
+    let (rules_sha256, source_sha256) = (rs(r)?, rs(r)?);
+    let provenance = match rd::<1>(r)?[0] {
+        1 => Provenance::Synthetic,
+        2 => Provenance::OperatorNormalized,
+        3 => Provenance::OperatorUnverified,
+        _ => return Err(bad("provenance tag")),
+    };
+    let winner = match rd::<1>(r)?[0] {
+        0 => None,
+        1 => Some(Side::Yes),
+        2 => Some(Side::No),
+        _ => return Err(bad("winner tag")),
+    };
+    let n = ru(r)?;
+    if n > crate::input::MAX_SNAPSHOTS_PER_CASE as u64 {
+        return Err(bad("too many snapshots"));
+    }
+    let mut snapshots = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        let received_ns = ri(r)?;
+        let reference_cents = ri(r)?;
+        let peer_reference_cents = roi(r)?;
+        let perp_basis_bps = match roi(r)? {
+            None => None,
+            Some(v) => Some(i32::try_from(v).map_err(|_| bad("perp basis"))?),
+        };
+        let book = Book {
+            market: rs(r)?,
+            exchange_ns: ri(r)?,
+            received_ns: ri(r)?,
+            session_id: rs(r)?,
+            sequence: ru(r)?,
+            yes_bids: rlevels(r)?,
+            no_bids: rlevels(r)?,
+        };
+        snapshots.push(Snapshot {
+            received_ns,
+            book,
+            reference_cents,
+            peer_reference_cents,
+            perp_basis_bps,
+        });
+    }
+    Ok(MarketCase {
+        market,
+        event,
+        cluster,
+        asset,
+        open_ns,
+        expiration_ns,
+        strike_cents,
+        rules_sha256,
+        source_sha256,
+        provenance,
+        snapshots,
+        winner,
+    })
+}
+
 /// Incremental fingerprint over an ordered case stream.
 pub struct Fingerprinter {
     h: Sha256,
@@ -88,7 +239,7 @@ pub struct Fingerprinter {
 impl Default for Fingerprinter {
     fn default() -> Self {
         let mut h = Sha256::new();
-        s(&mut h, NORMALIZED_SCHEMA);
+        encode_header(&mut h);
         Self { h, n: 0 }
     }
 }
@@ -98,7 +249,7 @@ impl Fingerprinter {
         encode_case(&mut self.h, c);
     }
     pub fn finish(mut self) -> String {
-        u(&mut self.h, self.n);
+        encode_trailer(&mut self.h, self.n);
         format!("{:x}", self.h.finalize())
     }
 }
@@ -160,6 +311,41 @@ mod tests {
         let mut swapped = base.clone();
         swapped.swap(0, 1);
         assert_ne!(normalized_sha256(&swapped), h0);
+    }
+
+    #[test]
+    fn binary_encoding_round_trips_every_field() {
+        let mut cases = generate(&Scenario::peer_lead(2, 1, 11));
+        cases[0].winner = None;
+        cases[1].provenance = Provenance::OperatorUnverified;
+        cases[1].snapshots[0].perp_basis_bps = Some(-7);
+        let mut buf = Vec::new();
+        encode_header(&mut buf);
+        cases.iter().for_each(|c| encode_case(&mut buf, c));
+        encode_trailer(&mut buf, cases.len() as u64);
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&buf)),
+            normalized_sha256(&cases)
+        );
+        let mut r = buf.as_slice();
+        decode_header(&mut r).unwrap();
+        let back: Vec<MarketCase> = (0..cases.len())
+            .map(|_| decode_case(&mut r).unwrap())
+            .collect();
+        assert_eq!(decode_trailer(&mut r).unwrap(), cases.len() as u64);
+        assert!(r.is_empty());
+        for (a, b) in cases.iter().zip(&back) {
+            assert_eq!(to_jsonl_line(a), to_jsonl_line(b));
+            assert_eq!(a.snapshots, b.snapshots);
+        }
+        // Truncation and absurd lengths are errors, never panics or huge allocations.
+        let hdr = 8 + NORMALIZED_SCHEMA.len();
+        assert!(decode_case(&mut &buf[hdr..hdr + 20]).is_err());
+        let mut bad = buf.clone();
+        bad[hdr + 7] = 0xff; // high byte of the first case's market length
+        let mut r = bad.as_slice();
+        decode_header(&mut r).unwrap();
+        assert!(decode_case(&mut r).is_err());
     }
 
     #[test]

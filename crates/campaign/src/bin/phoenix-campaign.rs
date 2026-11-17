@@ -8,6 +8,8 @@
 //! Streaming file input (bounded memory):
 //!   phoenix-campaign --input markets.jsonl --out DIR [--threads 2] [--batch 256]
 //!       [--registry DIR [--confirmatory] [--allow-exploratory-reuse]]
+//!       [--cache-dir DIR]   (binary case cache: JSON decoded at most once,
+//!                            reused across runs for identical raw bytes)
 //! Authentic replay report -> campaign JSONL (one market; read-only inputs):
 //!   phoenix-campaign --adapt-replay REPORT.json --meta META.json \
 //!       --references REFS.jsonl [--perp PERP.jsonl] [--settlement S.json] \
@@ -29,7 +31,7 @@ use phoenix_campaign::paths::{
     prepare_output_dir, protected_roots, safe_state_dir, write_new_file, PathError,
 };
 use phoenix_campaign::registry::{Purpose, Registry, RunRecord, RunState};
-use phoenix_campaign::source::{CaseSource, FileSource};
+use phoenix_campaign::source::{CachedSource, CaseSource, FileSource};
 use phoenix_campaign::strategies::default_grid;
 use phoenix_campaign::synthetic::{generate, Scenario};
 use phoenix_campaign::Provenance;
@@ -87,8 +89,8 @@ fn summary(r: &Report) -> String {
     );
     let x = &r.resources;
     s += &format!(
-        "resources: cases={} snapshots={} passes={} raw_bytes_read={} decisions={} wall_ms={} decisions/s={:.0}\n\n",
-        x.cases, x.snapshots, x.passes, x.raw_bytes_read, x.decisions_evaluated, x.wall_ms, x.decisions_per_second
+        "resources: cases={} snapshots={} passes={} raw_bytes_read={} cache_bytes_read={} case_cache={:?} decisions={} wall_ms={} decisions/s={:.0}\n\n",
+        x.cases, x.snapshots, x.passes, x.raw_bytes_read, x.cache_bytes_read, x.case_cache, x.decisions_evaluated, x.wall_ms, x.decisions_per_second
     );
     s += "family                   tte  disc_trades disc_net_usd  disc_z  verdict\n";
     for row in &r.results {
@@ -234,7 +236,14 @@ fn real_main(args: &[String]) -> Result<(), String> {
         None if confirmatory => return Err("--confirmatory requires --registry DIR".into()),
         None => None,
     };
-    let mut src = FileSource::new(input, cfg.batch_size);
+    let mut src: Box<dyn CaseSource> = match arg(args, "--cache-dir") {
+        Some(d) => Box::new(CachedSource::new(
+            input,
+            safe_state_dir(&PathBuf::from(d), &roots).map_err(pe)?,
+            cfg.batch_size,
+        )),
+        None => Box::new(FileSource::new(input, cfg.batch_size)),
+    };
     let code = code_revision();
     let grid_sha = grid_sha256(&grid);
     // Identity pass so the registry record names the exact experiment.
@@ -306,7 +315,7 @@ fn real_main(args: &[String]) -> Result<(), String> {
         Ok(())
     };
     let mut r =
-        run_source(&mut src, &grid, &cfg, start_class, &mut hook).map_err(|e| format!("{e:?}"))?;
+        run_source(&mut *src, &grid, &cfg, start_class, &mut hook).map_err(|e| format!("{e:?}"))?;
     if r.normalized_input_sha256 != norm || r.raw_input_sha256 != raw {
         return Err("input changed between identity pass and evaluation".into());
     }

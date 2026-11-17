@@ -53,7 +53,11 @@ try{
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $argumentsList=@("run","--release","--manifest-path",$manifest,"--bin","phoenix-source-audit","--",$market,$start,$end,$members)+$zips
 $report=Join-Path $out "btc_source_replay.json"
-& $CargoExecutable @argumentsList | Out-File -LiteralPath $report -Encoding UTF8
+# Windows PowerShell 5.1 turns cargo's stderr progress into terminating errors under
+# "Stop"; relax only for this native call and judge success by the exit code.
+$ErrorActionPreference="Continue"
+& $CargoExecutable @argumentsList 2>$null | Out-File -LiteralPath $report -Encoding UTF8
+$ErrorActionPreference="Stop"
 if($LASTEXITCODE -ne 0){throw "Rust replay failed. Do not promote source evidence."}
 $result=Get-Content -Raw -LiteralPath $report | ConvertFrom-Json
 if($result.historical.matching_events -le 0 -or $result.historical.scanned_rows -gt 250000){
