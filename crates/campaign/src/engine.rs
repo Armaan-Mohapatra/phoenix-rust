@@ -708,7 +708,8 @@ mod tests {
             .map(|c| evaluate_case(&cfg, c, &ExecutionModel::default()))
             .collect();
         assert!(!summarize(&rows).cluster_order_violation);
-        rows[10].cluster = rows[0].cluster.clone();
+        let cl = rows[0].cluster.clone();
+        rows[10].cluster = cl;
         let m = summarize(&rows);
         assert!(m.cluster_order_violation && m.test.is_none());
     }

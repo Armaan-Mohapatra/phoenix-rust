@@ -446,14 +446,16 @@ pub fn summarize_positions(rows: &[PositionSample]) -> Result<Performance, Error
         peak = peak.max(running);
         dd = dd.max(peak.checked_sub(running).ok_or(Error::Arithmetic)?);
         settled += 1;
-        if n > 0 {
-            wins += 1;
-            win_sum = win_sum.checked_add(n).ok_or(Error::Arithmetic)?;
-        } else if n < 0 {
-            losses += 1;
-            loss_sum = loss_sum.checked_add(-n).ok_or(Error::Arithmetic)?;
-        } else {
-            flats += 1;
+        match n.cmp(&0) {
+            std::cmp::Ordering::Greater => {
+                wins += 1;
+                win_sum = win_sum.checked_add(n).ok_or(Error::Arithmetic)?;
+            }
+            std::cmp::Ordering::Less => {
+                losses += 1;
+                loss_sum = loss_sum.checked_add(-n).ok_or(Error::Arithmetic)?;
+            }
+            std::cmp::Ordering::Equal => flats += 1,
         }
     }
     let have = settled > 0;
