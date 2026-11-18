@@ -268,7 +268,7 @@ pub fn propose(
         }
         let mut child = parent.clone();
         let stem = format!("{}-hyp-{}", parent.id, &transform_sha[..16]);
-        child.id = stem.clone();
+        child.id.clone_from(&stem);
         child.model_version = format!("{}-hyp", parent.model_version);
         child.origin = Origin::ReconstructedHypothesis;
         child.lifecycle = Lifecycle::Proposed;
@@ -322,8 +322,8 @@ pub fn propose(
         let mut experiment = experiment_template.clone();
         experiment.id = format!("{}-discovery", stem);
         experiment.parent_id = Some(experiment_template.id.clone());
-        experiment.strategy_id = stem.clone();
-        experiment.config_sha256 = config.clone();
+        experiment.strategy_id.clone_from(&stem);
+        experiment.config_sha256.clone_from(&config);
         experiment.status = "PLANNED_DISCOVERY".into();
         experiment.random_seed = budget.seed;
         let experiment_id = experiment.id.clone();

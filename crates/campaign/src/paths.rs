@@ -149,7 +149,7 @@ pub fn prepare_output_dir(requested: &Path, roots: &[PathBuf]) -> Result<PathBuf
     } else {
         existing
     };
-    let projected = fs::canonicalize(&base).map_err(io)?.join(&rest);
+    let projected = fs::canonicalize(base).map_err(io)?.join(rest);
     deny(&projected, roots)?;
     match fs::symlink_metadata(&abs) {
         Ok(md) => {

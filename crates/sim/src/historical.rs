@@ -556,7 +556,7 @@ mod tests {
             ],
         }
     }
-    fn t<'a>(p: &'a [ConsumingPrint]) -> TradeTape<'a> {
+    fn t(p: &[ConsumingPrint]) -> TradeTape<'_> {
         TradeTape {
             complete_for_window: true,
             prints: p,

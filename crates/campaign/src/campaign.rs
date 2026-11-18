@@ -794,13 +794,15 @@ mod tests {
             Err(CampaignError::Unordered { .. })
         ));
         let mut inconsistent = cases.clone();
-        inconsistent[3].event = inconsistent[0].event.clone();
+        let ev = inconsistent[0].event.clone();
+        inconsistent[3].event = ev;
         assert!(matches!(
             run(&inconsistent, g, &fast()),
             Err(CampaignError::InconsistentEvent(_))
         ));
         let mut split_cluster = cases.clone();
-        split_cluster[4].cluster = split_cluster[0].cluster.clone();
+        let cl = split_cluster[0].cluster.clone();
+        split_cluster[4].cluster = cl;
         assert!(matches!(
             run(&split_cluster, g, &fast()),
             Err(CampaignError::NonContiguousCluster(_))
@@ -1114,7 +1116,7 @@ mod tests {
             .map(|e| e.unwrap().path())
             .find(|p| p.extension().is_some_and(|x| x == "bin"))
             .unwrap();
-        let digest = format!("{:x}", Sha256::digest(std::fs::read(&bin).unwrap()));
+        let digest = format!("{:x}", Sha256::digest(std::fs::read(bin).unwrap()));
         assert_eq!(digest, mem.normalized_input_sha256);
     }
 
