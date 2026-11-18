@@ -217,6 +217,8 @@ function Logged([string]$Task,[string]$Exe,[string[]]$CommandArgs,[string]$Cwd){
     Sample-Resources $Task 'before'
     Push-Location -LiteralPath $Cwd
     try{
+        # PS 5.1 turns native stderr into terminating errors under 'Stop'; judge by exit code.
+        $ErrorActionPreference='Continue'
         & $Exe @CommandArgs *> $log
         $exitCode=if($null -ne $LASTEXITCODE){[int]$LASTEXITCODE}else{0}
     }catch{
