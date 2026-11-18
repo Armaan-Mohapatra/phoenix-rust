@@ -85,6 +85,53 @@ class Ready:
     sha: str
     length: int
     events: int
+    sig: tuple = ()  # (manifest size/mtime_ns, events size/mtime_ns) to detect mutation after listing
+    mtime: float = 0.0
+
+
+def chain_next(head: str, seg: "Ready") -> str:
+    return hashlib.sha256(f"{head}:{seg.id}:{seg.sha}".encode()).hexdigest()
+
+
+def assert_unchanged(segments: list["Ready"]) -> None:
+    """Source files must be byte-stable between listing and after ingestion."""
+    for s in segments:
+        now = (s.path / "manifest.json").stat(), (s.path / "events.bin").stat()
+        if (now[0].st_size, now[0].st_mtime_ns, now[1].st_size, now[1].st_mtime_ns) != s.sig:
+            fail(f"source segment {s.id} changed during ingestion; checkpoint not advanced")
+
+
+def log_event(lab: Path, record: dict, limit: int = 5 * 1024 * 1024) -> None:
+    """Append-only JSONL evidence with single-generation rotation."""
+    path = lab / "logs" / "watcher.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.stat().st_size > limit:
+        os.replace(path, path.with_suffix(".jsonl.1"))
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"ts": time.time(), **record}) + "\n")
+
+
+def acquire_lock(lab: Path, stale_s: int) -> Path:
+    """Single-instance lock; a lock whose mtime is older than stale_s is a dead owner."""
+    lock = lab / "registry" / "watcher.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(2):
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            return lock
+        except FileExistsError:
+            if time.time() - lock.stat().st_mtime < stale_s:
+                fail(f"another watcher instance holds {lock}")
+            lock.unlink(missing_ok=True)
+    fail("could not acquire watcher lock")
+
+
+def managed_bytes(lab: Path) -> int:
+    """Actual bytes under every watch-* output (includes failed/abandoned runs)."""
+    return sum(tree_bytes(p) for sub in ("catalog", "derived")
+               for p in (lab / sub).glob("watch-*") if p.is_dir())
 
 
 def ready_segments(root: Path, min_age_s: int) -> list[Ready]:
@@ -117,7 +164,9 @@ def ready_segments(root: Path, min_age_s: int) -> list[Ready]:
         sha = str(raw["sha256"])
         if length != es.st_size or count < 0 or len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha.lower()):
             fail(f"invalid finalized manifest or size mismatch: {child}")
-        result.append(Ready(i, child, sha.lower(), length, count))
+        result.append(Ready(i, child, sha.lower(), length, count,
+                            (ms.st_size, ms.st_mtime_ns, es.st_size, es.st_mtime_ns),
+                            max(ms.st_mtime, es.st_mtime)))
     result.sort(key=lambda x: x.id)
     ids = [x.id for x in result]
     if len(ids) != len(set(ids)):
@@ -158,6 +207,10 @@ def select_batch(ready: list[Ready], state: dict, batch_max: int,
         prior = by_id.get(last_id)
         if prior is None or prior.sha != state["last_sha"]:
             fail("last processed immutable segment is missing or its manifest changed")
+        for pid, psha in state.get("processed", {}).items():
+            cur = by_id.get(int(pid))
+            if cur is None or cur.sha != psha:
+                fail(f"previously ingested segment {pid} is missing or changed")
         new = [s for s in ready if s.id > last_id]
     else:
         new = ready[-bootstrap_last:] if bootstrap_last else ready[:]
@@ -198,13 +251,13 @@ def run_guarded(command: list[str], output_dirs: list[Path], lab: Path,
                 reserved_bytes: int, prior_bytes: int, output_budget: int,
                 timeout_seconds: int) -> None:
     """Terminate child on timeout/disk pressure. No shell, and no source writes."""
-    with subprocess.Popen(command, shell=False, stdin=subprocess.DEVNULL,
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          text=True, bufsize=1) as child:
+    # Child output goes to a file (never a pipe we do not drain), so it cannot deadlock.
+    child_log = lab / "logs" / f"child-{uuid.uuid4().hex[:8]}.log"
+    child_log.parent.mkdir(parents=True, exist_ok=True)
+    with child_log.open("wb") as sink, subprocess.Popen(
+            command, shell=False, stdin=subprocess.DEVNULL,
+            stdout=sink, stderr=subprocess.STDOUT) as child:
         start = time.monotonic()
-        # Redirect stdout to an independent bounded pipe reader? stdout of these tools
-        # is small, but a full pipe can block. Use DEVNULL; status is in exit code/output.
-        # This loop is intentionally not used with chatty executables.
         while child.poll() is None:
             used = sum(tree_bytes(p) for p in output_dirs)
             free = shutil.disk_usage(lab).free
@@ -218,8 +271,10 @@ def run_guarded(command: list[str], output_dirs: list[Path], lab: Path,
                 fail("child stopped for bounded runtime timeout")
             time.sleep(0.5)
         if child.returncode:
-            excerpt = child.stdout.read(4096) if child.stdout else ""
-            fail(f"offline research command returned {child.returncode}: {excerpt[:1000]}")
+            sink.flush()
+            excerpt = child_log.read_bytes()[-1000:].decode("utf-8", "replace")
+            fail(f"offline research command returned {child.returncode}: {excerpt}")
+    child_log.unlink(missing_ok=True)  # kept only on failure
 
 
 def execute_batch(args: argparse.Namespace, ready: list[Ready], state: dict,
@@ -230,9 +285,10 @@ def execute_batch(args: argparse.Namespace, ready: list[Ready], state: dict,
         fail("compiled phoenix-tnevent binary missing; run local Rust validation/build first")
     if shutil.disk_usage(lab).free < args.min_free_bytes:
         fail("free disk space below configured reserve")
-    used_so_far = int(state.get("managed_output_bytes", 0))
+    used_so_far = managed_bytes(lab)  # measured, so abandoned/failed runs count
     if used_so_far >= args.max_managed_bytes:
         fail("managed output budget exhausted; no auto deletion")
+    assert_unchanged(context)
     ticket = f"watch-{selected[0].id:08d}-{selected[-1].id:08d}-{uuid.uuid4().hex[:8]}"
     catalog = lab / "catalog" / ticket
     derived = lab / "derived" / ticket
@@ -259,8 +315,11 @@ def execute_batch(args: argparse.Namespace, ready: list[Ready], state: dict,
         save_json_atomic(lab / "registry" / "watcher-failure.json",
                          {"schema": SCHEMA, "error": str(error),
                           "ticket": ticket, "checkpoint_advanced": False,
+                          "abandoned_bytes": sum(tree_bytes(p) for p in active),
                           "partial_outputs_retained_for_review": True})
+        log_event(lab, {"event": "failure", "ticket": ticket, "error": str(error)})
         raise
+    assert_unchanged(context)
     summary = json.loads((catalog / "summary.json").read_text(encoding="utf-8"))
     if (int(summary.get("segments", -1)) != len(context)
         or int(summary.get("segments_sha_verified", -1)) != len(context)):
@@ -275,7 +334,15 @@ def execute_batch(args: argparse.Namespace, ready: list[Ready], state: dict,
     s["initial_history_excluded"] = s.get("initial_history_excluded", False) or (
         state["last_id"] is None and selected[0].id > ready[0].id)
     s["managed_output_bytes"] = used_so_far + produced
-    record = {"ticket": ticket, "first_new_id": selected[0].id,
+    head = s.get("chain", "genesis")
+    processed = dict(s.get("processed", {}))
+    for seg in selected:  # hash chain over ingested (id, sha) in order
+        head = chain_next(head, seg)
+        processed[str(seg.id)] = seg.sha
+    s["chain"], s["processed"] = head, processed
+    age = max(0.0, time.time() - selected[-1].mtime)
+    record = {"ticket": ticket, "chain_head": head, "newest_ingested_age_s": round(age),
+              "mode": "HISTORICAL_ONLY", "first_new_id": selected[0].id,
               "last_new_id": selected[-1].id, "warmup_from_id": context[0].id,
               "source_segments_verified": len(context), "bytes_written": produced,
               "catalog": str(catalog), "derived": str(derived) if args.cases else None,
@@ -317,13 +384,20 @@ def main(argv: list[str] | None = None) -> int:
         or args.min_age < 0 or args.poll_seconds < 10 or args.job_timeout < 10
         or args.min_free_gib < 1 or args.max_managed_gib <= 0):
         p.error("invalid bounds")
-    args.min_free_bytes = int(args.min_free_gib * GIB)
     args.max_managed_bytes = int(args.max_managed_gib * GIB)
+    lock = None
     try:
         args.source, args.workspace = validate_paths(args.source, args.workspace, args.source_allow)
+        probe = next(q for q in (args.workspace, *args.workspace.parents) if q.exists())
+        # reserve = max(configured GiB, 15% of the volume)
+        args.min_free_bytes = max(int(args.min_free_gib * GIB),
+                                  int(0.15 * shutil.disk_usage(probe).total))
         if args.execute:
             args.workspace.mkdir(parents=True, exist_ok=True)
+            lock = acquire_lock(args.workspace, stale_s=args.job_timeout * 2 + args.poll_seconds)
         while True:
+            if lock:
+                os.utime(lock)  # heartbeat for stale-owner detection
             ready = ready_segments(args.source, args.min_age)
             state = read_state(args.workspace / "registry" / "finalized-watcher.json")
             selected, context = select_batch(
@@ -346,6 +420,9 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as error:
         print(f"PHOENIX WATCHER FAIL-CLOSED: {error}", file=sys.stderr)
         return 2
+    finally:
+        if lock:
+            lock.unlink(missing_ok=True)
     return 0
 
 
