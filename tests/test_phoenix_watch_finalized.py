@@ -49,7 +49,7 @@ class WatcherTests(unittest.TestCase):
     def test_dry_run_creates_nothing(self):
         lab = self.base / "nonexistent-lab"
         self.assertEqual(watch.main(["--source", str(self.source),
-            "--source-allow", str(self.base),
+            "--source-allow", str(self.source),
             "--workspace", str(lab), "--bootstrap-last", "2",
             "--min-age", "0"]), 0)
         self.assertFalse(lab.exists())
@@ -91,7 +91,7 @@ class WatcherTests(unittest.TestCase):
 
     def test_workspace_inside_source_refused(self):
         with self.assertRaisesRegex(RuntimeError, "separate"):
-            watch.validate_paths(self.source, self.source / "inside", self.base)
+            watch.validate_paths(self.source, self.source / "inside", self.source)
 
     def test_source_outside_permitted_prefix_refused(self):
         other = self.base / "other"
