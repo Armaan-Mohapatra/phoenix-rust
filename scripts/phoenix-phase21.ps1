@@ -101,6 +101,7 @@ function Get-HealthReasons($s, $mem) {
     if ([int]$s.archive_manifest_failures -gt 0) { $r.Add("ARCHIVE_MANIFEST_FAILURES_$($s.archive_manifest_failures)") }
     if ([int]$s.archive_checkpoint_write_failures -gt 0) { $r.Add("ARCHIVE_CHECKPOINT_WRITE_FAILURES_$($s.archive_checkpoint_write_failures)") }
     if ($s.disk_state -and $s.disk_state -ne 'OK') { $r.Add("DISK_$($s.disk_state)") }
+    if ($s.ledger_volume_state -and $s.ledger_volume_state -ne 'OK') { $r.Add("LEDGER_VOLUME_$($s.ledger_volume_state)") }
     if ($s.journal_optional_capture_state -eq 'STOPPED_JOURNAL_BUDGET') { $r.Add('JOURNAL_BUDGET_REACHED_DELTAS_STOPPED') }
     if ($mem.avail_mb -lt 400) { $r.Add("LOW_RAM_$($mem.avail_mb)MB") }
     if ($mem.commit_free_mb -lt 1024) { $r.Add("LOW_COMMIT_$($mem.commit_free_mb)MB") }
