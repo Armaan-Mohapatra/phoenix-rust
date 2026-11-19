@@ -15,7 +15,7 @@ Supervisor states (runtime\phoenix-heartbeat.json, supervisor_state):
 param(
     [ValidateSet('start','stop','status','supervise','register','enable','disable','unregister')]
     [string]$Mode = 'status',
-    [string]$ProjectRoot = 'C:\Users\dakin\Projects\kalshi-15m-native',
+    [string]$ProjectRoot = 'C:\Users\dakin\Projects\kalshi15m-phase21',
     [string]$RuntimeHome = 'E:\PhoenixLab\runtime\k15m-native',
     [int]$Port = 8778,
     [int]$PollSeconds = 30
@@ -92,6 +92,10 @@ function Get-HealthReasons($s, $mem) {
     if ($s.parquet_archive_recovery_state -match '^(FAILED_|PARTIAL_RECOVERY_|SKIPPED_LOW_DISK$|SKIPPED_RAW_BUDGET$)') {
         $r.Add("ARCHIVE_RECOVERY_$($s.parquet_archive_recovery_state)")
     }
+    # Unknown or missing evidence is not success: only positive archive verification passes.
+    if ($s.archive_integrity_state -notmatch '^VERIFIED_COMPLETE') { $r.Add("ARCHIVE_INTEGRITY_$($s.archive_integrity_state)") }
+    if ([int]$s.archive_manifest_failures -gt 0) { $r.Add("ARCHIVE_MANIFEST_FAILURES_$($s.archive_manifest_failures)") }
+    if ([int]$s.archive_checkpoint_write_failures -gt 0) { $r.Add("ARCHIVE_CHECKPOINT_WRITE_FAILURES_$($s.archive_checkpoint_write_failures)") }
     if ($s.disk_state -and $s.disk_state -ne 'OK') { $r.Add("DISK_$($s.disk_state)") }
     if ($s.journal_optional_capture_state -eq 'STOPPED_JOURNAL_BUDGET') { $r.Add('JOURNAL_BUDGET_REACHED_DELTAS_STOPPED') }
     if ($mem.avail_mb -lt 400) { $r.Add("LOW_RAM_$($mem.avail_mb)MB") }
@@ -115,6 +119,10 @@ function Write-Heartbeat([string]$State, $Reasons, $s, $Extra) {
         recovery_mode = $s.parquet_archive_recovery_mode; recovery_seconds = $s.storage_recovery_seconds
         recovery_state = $s.parquet_archive_recovery_state
         recovery_elapsed_seconds = $s.storage_recovery_elapsed_seconds
+        archive_integrity_state = $s.archive_integrity_state
+        archive_recovery_reason = $s.archive_recovery_reason
+        archive_recovery_files_scanned = $s.archive_recovery_files_scanned
+        archive_recovery_rows_scanned = $s.archive_recovery_rows_scanned
         strategy_decisions_persisted = $s.strategy_decisions_persisted
         crossmarket_decisions_persisted = $s.crossmarket_decisions_persisted
         paper_fill_records = $s.paper_fill_records; paper_settlement_records = $s.paper_settlement_records
@@ -132,7 +140,7 @@ function Write-Heartbeat([string]$State, $Reasons, $s, $Extra) {
     $o
 }
 function Get-TaskArgument {
-    "--headless C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Mode supervise"
+    "--headless C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Mode supervise -ProjectRoot `"$ProjectRoot`" -RuntimeHome `"$RuntimeHome`" -Port $Port"
 }
 function Assert-PaperOnly($s) {
     if ($s -and ($s.mode -ne 'PAPER_ONLY' -or [int]$s.exchange_write_calls -ne 0 -or [int]$s.orders_submitted_to_exchange -ne 0)) {
