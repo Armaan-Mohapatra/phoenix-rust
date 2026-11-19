@@ -30,6 +30,10 @@ $env:KALSHI15M_STATUS_PORT = [string]$Port
 # Persist book deltas only for the six Phoenix research families (tnevent::research_asset).
 # All other books still update in memory; paper fills embed their own arrival book.
 $env:KALSHI15M_JOURNAL_DELTA_SERIES = 'KXBTC15M,KXETH15M,KXSOL15M,KXXRP15M,KXDOGE15M,KXBNB15M'
+# Same six families for WebSocket ticker rows. Archival only (no decision reads them);
+# the USB research volume cannot sustain journaling every series. Remove this line to
+# journal all tickers again.
+$env:KALSHI15M_JOURNAL_TICKER_SERIES = $env:KALSHI15M_JOURNAL_DELTA_SERIES
 # Optional delta journaling stops at 60 GiB SQLite+WAL; Parquet raw archive capped at 20 GiB.
 $env:KALSHI15M_JOURNAL_BUDGET_BYTES = [string](60GB)
 $env:KALSHI15M_RAW_DATA_BUDGET_BYTES = [string](20GB)
