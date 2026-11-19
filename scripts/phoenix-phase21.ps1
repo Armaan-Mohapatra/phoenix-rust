@@ -89,6 +89,9 @@ function Get-HealthReasons($s, $mem) {
     if ($s.orderbook_sequence_state -ne 'VERIFIED_CONTIGUOUS') { $r.Add("BOOK_SEQUENCE_$($s.orderbook_sequence_state)") }
     if ([int]$s.queue_depth -ge [int](0.9 * $MaxQueueEvents)) { $r.Add("WRITER_BACKLOG_$($s.queue_depth)") }
     if ($s.storage_write_state -ne 'HEALTHY') { $r.Add("STORAGE_$($s.storage_write_state)") }
+    if ($s.parquet_archive_recovery_state -match '^(FAILED_|PARTIAL_RECOVERY_|SKIPPED_LOW_DISK$|SKIPPED_RAW_BUDGET$)') {
+        $r.Add("ARCHIVE_RECOVERY_$($s.parquet_archive_recovery_state)")
+    }
     if ($s.disk_state -and $s.disk_state -ne 'OK') { $r.Add("DISK_$($s.disk_state)") }
     if ($s.journal_optional_capture_state -eq 'STOPPED_JOURNAL_BUDGET') { $r.Add('JOURNAL_BUDGET_REACHED_DELTAS_STOPPED') }
     if ($mem.avail_mb -lt 400) { $r.Add("LOW_RAM_$($mem.avail_mb)MB") }
@@ -110,6 +113,8 @@ function Write-Heartbeat([string]$State, $Reasons, $s, $Extra) {
         journal_optional_capture_state = $s.journal_optional_capture_state
         journal_delta_skipped = $s.journal_delta_skipped
         recovery_mode = $s.parquet_archive_recovery_mode; recovery_seconds = $s.storage_recovery_seconds
+        recovery_state = $s.parquet_archive_recovery_state
+        recovery_elapsed_seconds = $s.storage_recovery_elapsed_seconds
         strategy_decisions_persisted = $s.strategy_decisions_persisted
         crossmarket_decisions_persisted = $s.crossmarket_decisions_persisted
         paper_fill_records = $s.paper_fill_records; paper_settlement_records = $s.paper_settlement_records
@@ -161,6 +166,10 @@ switch ($Mode) {
                         $reasons = @("PORT_${Port}_SERVED_BY_UNVERIFIED_PID_$($s.pid)")
                     } elseif ($s.service_state -eq 'RECOVERING') {
                         $state = 'RECOVERING'; $reasons = @("PHASE_$($s.startup_phase)")
+                        if ($s.storage_recovery_elapsed_seconds -and [double]$s.storage_recovery_elapsed_seconds -gt 1800) {
+                            $state = 'DEGRADED'
+                            $reasons += "RECOVERY_OVER_30_MINUTES_$([int]$s.storage_recovery_elapsed_seconds)s"
+                        }
                     } elseif ($s.service_state -eq 'STARTING') {
                         $state = 'STARTING'
                     } elseif ($s.service_state -eq 'RUNNING') {
