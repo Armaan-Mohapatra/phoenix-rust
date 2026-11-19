@@ -135,6 +135,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "phoenix-collector-adapter"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "phoenix-domain"
 version = "0.1.0"
 
