@@ -53,6 +53,12 @@ $supLog = Join-Path $RuntimeHome 'logs\phoenix-supervisor.log'
 $growthLog = Join-Path $RuntimeHome 'logs\phoenix-growth.csv'
 $FreshnessLimitSeconds = 120
 $MaxQueueEvents = 12000
+# A worker whose heartbeat has been silent this long has a frozen event loop (normal period 5 s,
+# worst stall seen ~20 s). Seen 2026-11-19: alive, 0% CPU, counters frozen, status page still
+# answering from its own thread, so "alive" was reported as healthy for 18 minutes.
+$FrozenHeartbeatSeconds = 600
+$FrozenStopWaitSeconds = 120
+$FrozenIdleCheckSeconds = 10
 
 function Rotate([string]$path, [long]$limit) {
     if ((Test-Path -LiteralPath $path) -and (Get-Item -LiteralPath $path).Length -gt $limit) {
@@ -87,6 +93,49 @@ function Get-OwnedWorker {
 function Get-AgeSeconds($utc) {
     if (-not $utc) { return $null }
     [Math]::Round(([DateTime]::UtcNow - [DateTime]::Parse($utc).ToUniversalTime()).TotalSeconds, 1)
+}
+function Get-CpuSeconds([int]$procId) {
+    try { (Get-Process -Id $procId -ErrorAction Stop).TotalProcessorTime.TotalSeconds } catch { $null }
+}
+function Test-Idle([int]$procId, [double]$maxFraction) {
+    # True when the process is gone or used less than maxFraction of one core over the check window.
+    $before = Get-CpuSeconds $procId
+    if ($null -eq $before) { return $true }
+    Start-Sleep -Seconds $FrozenIdleCheckSeconds
+    $after = Get-CpuSeconds $procId
+    if ($null -eq $after) { return $true }
+    (($after - $before) / $FrozenIdleCheckSeconds) -lt $maxFraction
+}
+function Invoke-FrozenWorkerRecovery($s) {
+    # Returns EXITED (stopped on request), KILLED (frozen and idle, terminated) or BUSY (left alone).
+    # The journal child flushes and exits when its parent's pipe closes, so killing only the parent
+    # is the same recovery path as every checkpoint restart; nothing is killed unless BOTH are idle.
+    $workerPid = [int]$s.pid; $childPid = [int]$s.journal_process_pid
+    $stopRequest = Join-Path $RuntimeHome 'runtime\stop.request'
+    'stop' | Set-Content -LiteralPath $stopRequest -Encoding ascii
+    Write-Log "FROZEN_WORKER_STOP_REQUESTED pid=$workerPid journal_pid=$childPid heartbeat_age=$(Get-AgeSeconds $s.heartbeat_utc)s"
+    $deadline = [DateTime]::UtcNow.AddSeconds($FrozenStopWaitSeconds)
+    while ((Get-Process -Id $workerPid -ErrorAction SilentlyContinue) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Seconds 2 }
+    if (-not (Get-Process -Id $workerPid -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $stopRequest -Force -ErrorAction SilentlyContinue
+        return 'EXITED'
+    }
+    $workerIdle = Test-Idle $workerPid 0.02
+    $childIdle = if ($childPid -gt 0) { Test-Idle $childPid 0.05 } else { $true }
+    if (-not ($workerIdle -and $childIdle)) {
+        Remove-Item -LiteralPath $stopRequest -Force -ErrorAction SilentlyContinue
+        Write-Log "FROZEN_WORKER_BUSY_NOT_TERMINATED pid=$workerPid worker_idle=$workerIdle child_idle=$childIdle"
+        return 'BUSY'
+    }
+    Stop-Process -Id $workerPid -Force
+    Write-Log "FROZEN_WORKER_TERMINATED pid=$workerPid (heartbeat silent, worker and journal process idle)"
+    if ($childPid -gt 0) {
+        $childDeadline = [DateTime]::UtcNow.AddSeconds(60)
+        while ((Get-Process -Id $childPid -ErrorAction SilentlyContinue) -and [DateTime]::UtcNow -lt $childDeadline) { Start-Sleep -Seconds 2 }
+        if (Get-Process -Id $childPid -ErrorAction SilentlyContinue) { Write-Log "FROZEN_WORKER_JOURNAL_PROCESS_STILL_RUNNING pid=$childPid (left to flush)" }
+    }
+    Remove-Item -LiteralPath $stopRequest -Force -ErrorAction SilentlyContinue
+    'KILLED'
 }
 function Get-HealthReasons($s, $mem) {
     $r = New-Object System.Collections.Generic.List[string]
@@ -200,6 +249,12 @@ switch ($Mode) {
                         }
                         $reasons = Get-HealthReasons $s $mem
                         $state = 'HEALTHY'; if ($reasons.Count -gt 0) { $state = 'DEGRADED' }
+                        $hbAge = Get-AgeSeconds $s.heartbeat_utc
+                        if ($null -ne $hbAge -and $hbAge -gt $FrozenHeartbeatSeconds) {
+                            $outcome = Invoke-FrozenWorkerRecovery $s
+                            $reasons += "FROZEN_WORKER_$outcome"
+                            if ($outcome -ne 'BUSY') { $nextStartUtc = [DateTime]::UtcNow; $restartIssuedUtc = [DateTime]::UtcNow; $restartsIssued++ }
+                        }
                     } else {
                         $state = 'DEGRADED'; $reasons = @("SERVICE_$($s.service_state)")
                     }
