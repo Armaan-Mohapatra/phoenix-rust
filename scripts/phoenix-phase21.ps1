@@ -37,6 +37,12 @@ $env:KALSHI15M_JOURNAL_TICKER_SERIES = $env:KALSHI15M_JOURNAL_DELTA_SERIES
 # Optional delta journaling stops at 60 GiB SQLite+WAL; Parquet raw archive capped at 20 GiB.
 $env:KALSHI15M_JOURNAL_BUDGET_BYTES = [string](60GB)
 $env:KALSHI15M_RAW_DATA_BUDGET_BYTES = [string](20GB)
+# The event loop and the journal writer share one GIL and the collector is CPU-bound:
+# run the journal/Parquet side in its own process (owner-approved 2026-11-19, P0).
+$env:KALSHI15M_JOURNAL_PROCESS = '1'
+# Keep 4 h of events in the SQLite journal once they are verified in the manifest-backed
+# Parquet archive (owner-approved 2026-11-19, P8). The journal file stops growing (~10 GB).
+$env:KALSHI15M_JOURNAL_RETENTION_HOURS = '4'
 $env:TMPDIR = 'E:\PhoenixLab\cache\tmp'; $env:TMP = $env:TMPDIR; $env:TEMP = $env:TMPDIR
 New-Item -ItemType Directory -Force -Path $env:TMPDIR, (Join-Path $RuntimeHome 'runtime'), (Join-Path $RuntimeHome 'logs') | Out-Null
 $scripts = Join-Path $ProjectRoot 'scripts\windows'
