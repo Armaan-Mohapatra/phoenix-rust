@@ -63,6 +63,7 @@ pub struct Oracle {
 pub struct Line {
     pub t: String,
     pub seq: Option<u64>,
+    pub sid: Option<u64>,
     pub ticker: String,
     pub side: Option<String>,
     pub price: Option<String>,
@@ -110,7 +111,9 @@ impl Book {
             other => return Err(Error::UnknownSide(other.to_string())),
         };
         let (p, d) = (parse_fixed(price, PRICE_SCALE)?, parse_fixed(delta, QTY_SCALE)?);
-        let size = levels.get(&p).copied().unwrap_or(0) + d;
+        let size = levels.get(&p).copied().unwrap_or(0)
+            .checked_add(d)
+            .ok_or_else(|| Error::BadNumber("quantity sum overflow".to_string()))?;
         if size < 0 {
             return Err(Error::NegativeQuantity);
         }
@@ -154,34 +157,81 @@ pub struct Report {
 
 impl Report {
     pub fn parity_ok(&self) -> bool {
-        self.lines > 0 && self.quote_mismatches == 0 && self.negative_quantity_errors == 0 && self.other_errors == 0
+        self.lines > 0 && self.snapshots > 0 && self.quote_mismatches == 0
+            && self.negative_quantity_errors == 0 && self.other_errors == 0
+            && self.out_of_order_seq == 0
     }
 }
 
-/// Replay one market's feed. A bad line is counted, never silently skipped.
+/// Replay one market's feed. Every delta must follow a verified snapshot
+/// with an exact next sequence. After any gap or invalid book mutation the
+/// lineage is unusable until a fresh snapshot. A bad line is counted, never skipped.
 pub fn replay<I: IntoIterator<Item = String>>(lines: I) -> Report {
     let mut book = Book::default();
     let mut report = Report::default();
     let mut last_seq: Option<u64> = None;
+    let mut has_snapshot = false;
+    let mut last_sid: Option<u64> = None;
+    let mut market: Option<String> = None;
     for raw in lines {
         report.lines += 1;
         let line: Line = match serde_json::from_str(&raw) {
             Ok(l) => l,
             Err(_) => {
                 report.other_errors += 1;
+                has_snapshot = false;
+                last_seq = None;
                 continue;
             }
         };
-        if let (Some(prev), Some(cur)) = (last_seq, line.seq) {
-            if line.t == "delta" && cur <= prev {
-                report.out_of_order_seq += 1;
+        if line.ticker.trim().is_empty() {
+            report.other_errors += 1;
+            has_snapshot = false;
+            last_seq = None;
+            continue;
+        }
+        match &market {
+            Some(expected) if expected != &line.ticker => {
+                report.other_errors += 1; // a one-market feed changed identity
+                has_snapshot = false;
+                last_seq = None;
+                continue;
+            }
+            None => market = Some(line.ticker.clone()),
+            _ => {}
+        }
+
+        match line.t.as_str() {
+            "snap" => {
+                // An authentic WebSocket snapshot has a sid/seq. Without a seq
+                // the next delta cannot be certified as contiguous.
+                has_snapshot = false;
+                last_seq = None;
+                if line.seq.is_none() || line.sid.is_none() {
+                    report.other_errors += 1;
+                    continue;
+                }
+            }
+            "delta" => {
+                if !has_snapshot {
+                    report.other_errors += 1; // no synchronized book lineage
+                    continue;
+                }
+                if last_sid != line.sid || last_seq.and_then(|s| s.checked_add(1)) != line.seq {
+                    report.out_of_order_seq += 1; // duplicates, gaps, missing seq, overflow
+                    has_snapshot = false;
+                    last_seq = None;
+                    continue;
+                }
+            }
+            _ => {
+                report.other_errors += 1;
+                has_snapshot = false;
+                last_seq = None;
+                continue;
             }
         }
-        if line.t == "delta" {
-            last_seq = line.seq;
-        } else {
-            last_seq = None; // a snapshot starts a new segment
-        }
+
         let applied = match line.t.as_str() {
             "snap" => {
                 report.snapshots += 1;
@@ -194,27 +244,28 @@ pub fn replay<I: IntoIterator<Item = String>>(lines: I) -> Report {
                     _ => Err(Error::MissingField("side/price/delta")),
                 }
             }
-            _ => Err(Error::MissingField("t")),
+            _ => unreachable!("event type checked above"),
         };
         match applied {
-            Err(Error::NegativeQuantity) => {
-                report.negative_quantity_errors += 1;
-                continue;
-            }
-            Err(_) => {
-                report.other_errors += 1;
-                continue;
-            }
-            Ok(()) => {}
-        }
-        match oracle_quotes(&line.oracle) {
-            Ok(expected) if expected == book.quotes() => report.quote_matches += 1,
-            Ok(_) => {
-                report.quote_mismatches += 1;
-                report.first_mismatch_line.get_or_insert(report.lines);
-            }
+            Err(Error::NegativeQuantity) => report.negative_quantity_errors += 1,
             Err(_) => report.other_errors += 1,
+            Ok(()) => {
+                has_snapshot = true;
+                last_seq = line.seq;
+                last_sid = line.sid;
+                match oracle_quotes(&line.oracle) {
+                    Ok(expected) if expected == book.quotes() => report.quote_matches += 1,
+                    Ok(_) => {
+                        report.quote_mismatches += 1;
+                        report.first_mismatch_line.get_or_insert(report.lines);
+                    }
+                    Err(_) => report.other_errors += 1,
+                }
+                continue;
+            }
         }
+        has_snapshot = false;
+        last_seq = None;
     }
     report
 }
@@ -223,8 +274,8 @@ pub fn replay<I: IntoIterator<Item = String>>(lines: I) -> Report {
 mod tests {
     use super::*;
 
-    fn line(t: &str, extra: &str, yb: &str, nb: &str, ya: &str, na: &str) -> String {
-        format!(r#"{{"t":"{t}","seq":1,"ticker":"M",{extra}"oracle":{{"yes_bid":{yb},"no_bid":{nb},"yes_ask":{ya},"no_ask":{na}}}}}"#)
+    fn line(t: &str, seq: u64, extra: &str, yb: &str, nb: &str, ya: &str, na: &str) -> String {
+        format!(r#"{{"t":"{t}","seq":{seq},"sid":2,"ticker":"M",{extra}"oracle":{{"yes_bid":{yb},"no_bid":{nb},"yes_ask":{ya},"no_ask":{na}}}}}"#)
     }
 
     #[test]
@@ -240,12 +291,12 @@ mod tests {
 
     #[test]
     fn replays_snapshot_then_deltas_and_matches_oracle() {
-        let snap = line("snap", r#""yes":[["0.6000","10.00"]],"no":[["0.3800","5.00"]],"#,
+        let snap = line("snap", 1, r#""yes":[["0.6000","10.00"]],"no":[["0.3800","5.00"]],"#,
             r#""0.6000""#, r#""0.3800""#, r#""0.6200""#, r#""0.4000""#);
         // a new better yes bid at 0.61, then it is fully removed again
-        let add = line("delta", r#""side":"yes","price":"0.6100","delta":"2.00","#,
+        let add = line("delta", 2, r#""side":"yes","price":"0.6100","delta":"2.00","#,
             r#""0.6100""#, r#""0.3800""#, r#""0.6200""#, r#""0.3900""#);
-        let rem = line("delta", r#""side":"yes","price":"0.6100","delta":"-2.00","#,
+        let rem = line("delta", 3, r#""side":"yes","price":"0.6100","delta":"-2.00","#,
             r#""0.6000""#, r#""0.3800""#, r#""0.6200""#, r#""0.4000""#);
         let r = replay([snap, add, rem]);
         assert_eq!((r.snapshots, r.deltas, r.quote_matches, r.quote_mismatches), (1, 2, 3, 0));
@@ -254,17 +305,17 @@ mod tests {
 
     #[test]
     fn empty_book_has_no_quotes_and_matches_a_null_oracle() {
-        let r = replay([line("snap", r#""yes":[],"no":[],"#, "null", "null", "null", "null")]);
+        let r = replay([line("snap", 1, r#""yes":[],"no":[],"#, "null", "null", "null", "null")]);
         assert_eq!(r.quote_matches, 1);
     }
 
     #[test]
     fn mismatch_negative_quantity_and_bad_lines_are_counted_never_skipped() {
-        let snap = line("snap", r#""yes":[["0.6000","1.00"]],"no":[],"#,
+        let snap = line("snap", 1, r#""yes":[["0.6000","1.00"]],"no":[],"#,
             r#""0.6000""#, "null", "null", r#""0.4000""#);
-        let wrong = line("delta", r#""side":"yes","price":"0.6000","delta":"1.00","#,
+        let wrong = line("delta", 2, r#""side":"yes","price":"0.6000","delta":"1.00","#,
             r#""0.5000""#, "null", "null", r#""0.5000""#); // oracle disagrees
-        let neg = line("delta", r#""side":"no","price":"0.3000","delta":"-1.00","#, "null", "null", "null", "null");
+        let neg = line("delta", 3, r#""side":"no","price":"0.3000","delta":"-1.00","#, "null", "null", "null", "null");
         let r = replay([snap, wrong, neg, "not json".to_string()]);
         assert_eq!(r.quote_mismatches, 1);
         assert_eq!(r.first_mismatch_line, Some(2));
@@ -274,10 +325,59 @@ mod tests {
     }
 
     #[test]
+    fn delta_quantity_overflow_is_an_error_not_a_crash_or_wrapped_book() {
+        let mut book = Book::default();
+        // 2 fractional digits: this quantity reaches i64::MAX exactly.
+        assert_eq!(book.delta("yes", "0.5000", "92233720368547758.07"), Ok(()));
+        assert!(matches!(
+            book.delta("yes", "0.5000", "0.01"),
+            Err(Error::BadNumber(_))
+        ));
+    }
+
+    #[test]
+    fn missing_initial_snapshot_never_certifies_parity() {
+        let orphan = line("delta", 2, r#""side":"yes","price":"0.5000","delta":"1.00","#,
+            r#""0.5000""#, "null", "null", r#""0.5000""#);
+        let report = replay([orphan]);
+        assert_eq!(report.other_errors, 1);
+        assert!(!report.parity_ok());
+    }
+
+    #[test]
+    fn missing_seq_and_switched_market_fail_closed() {
+        let snap = line("snap", 1, r#""yes":[],"no":[],"#, "null", "null", "null", "null");
+        let absent_seq = line("delta", 2, r#""side":"yes","price":"0.5000","delta":"1.00","#,
+            r#""0.5000""#, "null", "null", r#""0.5000""#).replace(r#""seq":2"#, r#""seq":null"#);
+        let report = replay([snap.clone(), absent_seq]);
+        assert_eq!(report.out_of_order_seq, 1);
+        assert!(!report.parity_ok());
+
+        let changed = snap.replace(r#""ticker":"M""#, r#""ticker":"DIFFERENT""#);
+        let report = replay([snap, changed]);
+        assert_eq!(report.other_errors, 1);
+        assert!(!report.parity_ok());
+    }
+
+    #[test]
+    fn delta_with_new_subscription_id_requires_a_fresh_snapshot() {
+        let snap = line("snap", 1, r#""yes":[],"no":[],"#, "null", "null", "null", "null");
+        // A new connection may reuse numeric sequence values. SID must still match.
+        let wrong_sid = line("delta", 2, r#""side":"yes","price":"0.5000","delta":"1.00","#,
+            r#""0.5000""#, "null", "null", r#""0.5000""#)
+            .replace(r#""sid":2"#, r#""sid":3"#);
+        let report = replay([snap, wrong_sid]);
+        assert_eq!(report.out_of_order_seq, 1);
+        assert!(!report.parity_ok());
+    }
+
+    #[test]
     fn out_of_order_sequence_is_reported() {
         let mk = |seq: u64| format!(
-            r#"{{"t":"delta","seq":{seq},"ticker":"M","side":"yes","price":"0.5000","delta":"1.00","oracle":{{"yes_bid":"0.5000","no_bid":null,"yes_ask":null,"no_ask":"0.5000"}}}}"#);
-        let r = replay([mk(5), mk(4)]);
+            r#"{{"t":"delta","seq":{seq},"sid":2,"ticker":"M","side":"yes","price":"0.5000","delta":"1.00","oracle":{{"yes_bid":"0.5000","no_bid":null,"yes_ask":null,"no_ask":"0.5000"}}}}"#);
+        let snap = line("snap", 1, r#""yes":[],"no":[],"#, "null", "null", "null", "null");
+        let r = replay([snap, mk(5), mk(4)]);
         assert_eq!(r.out_of_order_seq, 1);
+        assert!(!r.parity_ok());
     }
 }
