@@ -63,6 +63,7 @@ pub struct Oracle {
 pub struct Line {
     pub t: String,
     pub seq: Option<u64>,
+    pub sid: Option<u64>,
     pub ticker: String,
     pub side: Option<String>,
     pub price: Option<String>,
@@ -168,6 +169,7 @@ pub fn replay<I: IntoIterator<Item = String>>(lines: I) -> Report {
     let mut report = Report::default();
     let mut last_seq: Option<u64> = None;
     let mut has_snapshot = false;
+    let mut last_sid: Option<u64> = None;
     let mut market: Option<String> = None;
     for raw in lines {
         report.lines += 1;
@@ -203,7 +205,7 @@ pub fn replay<I: IntoIterator<Item = String>>(lines: I) -> Report {
                 // the next delta cannot be certified as contiguous.
                 has_snapshot = false;
                 last_seq = None;
-                if line.seq.is_none() {
+                if line.seq.is_none() || line.sid.is_none() {
                     report.other_errors += 1;
                     continue;
                 }
@@ -213,7 +215,7 @@ pub fn replay<I: IntoIterator<Item = String>>(lines: I) -> Report {
                     report.other_errors += 1; // no synchronized book lineage
                     continue;
                 }
-                if last_seq.and_then(|s| s.checked_add(1)) != line.seq {
+                if last_sid != line.sid || last_seq.and_then(|s| s.checked_add(1)) != line.seq {
                     report.out_of_order_seq += 1; // duplicates, gaps, missing seq, overflow
                     has_snapshot = false;
                     last_seq = None;
@@ -248,6 +250,7 @@ pub fn replay<I: IntoIterator<Item = String>>(lines: I) -> Report {
             Ok(()) => {
                 has_snapshot = true;
                 last_seq = line.seq;
+                last_sid = line.sid;
                 match oracle_quotes(&line.oracle) {
                     Ok(expected) if expected == book.quotes() => report.quote_matches += 1,
                     Ok(_) => {
@@ -270,7 +273,7 @@ mod tests {
     use super::*;
 
     fn line(t: &str, seq: u64, extra: &str, yb: &str, nb: &str, ya: &str, na: &str) -> String {
-        format!(r#"{{"t":"{t}","seq":{seq},"ticker":"M",{extra}"oracle":{{"yes_bid":{yb},"no_bid":{nb},"yes_ask":{ya},"no_ask":{na}}}}}"#)
+        format!(r#"{{"t":"{t}","seq":{seq},"sid":2,"ticker":"M",{extra}"oracle":{{"yes_bid":{yb},"no_bid":{nb},"yes_ask":{ya},"no_ask":{na}}}}}"#)
     }
 
     #[test]
@@ -344,9 +347,21 @@ mod tests {
     }
 
     #[test]
+    fn delta_with_new_subscription_id_requires_a_fresh_snapshot() {
+        let snap = line("snap", 1, r#""yes":[],"no":[],"#, "null", "null", "null", "null");
+        // A new connection may reuse numeric sequence values. SID must still match.
+        let wrong_sid = line("delta", 2, r#""side":"yes","price":"0.5000","delta":"1.00","#,
+            r#""0.5000""#, "null", "null", r#""0.5000""#)
+            .replace(r#""sid":2"#, r#""sid":3"#);
+        let report = replay([snap, wrong_sid]);
+        assert_eq!(report.out_of_order_seq, 1);
+        assert!(!report.parity_ok());
+    }
+
+    #[test]
     fn out_of_order_sequence_is_reported() {
         let mk = |seq: u64| format!(
-            r#"{{"t":"delta","seq":{seq},"ticker":"M","side":"yes","price":"0.5000","delta":"1.00","oracle":{{"yes_bid":"0.5000","no_bid":null,"yes_ask":null,"no_ask":"0.5000"}}}}"#);
+            r#"{{"t":"delta","seq":{seq},"sid":2,"ticker":"M","side":"yes","price":"0.5000","delta":"1.00","oracle":{{"yes_bid":"0.5000","no_bid":null,"yes_ask":null,"no_ask":"0.5000"}}}}"#);
         let snap = line("snap", 1, r#""yes":[],"no":[],"#, "null", "null", "null", "null");
         let r = replay([snap, mk(5), mk(4)]);
         assert_eq!(r.out_of_order_seq, 1);
