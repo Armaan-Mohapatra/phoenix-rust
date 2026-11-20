@@ -111,7 +111,9 @@ impl Book {
             other => return Err(Error::UnknownSide(other.to_string())),
         };
         let (p, d) = (parse_fixed(price, PRICE_SCALE)?, parse_fixed(delta, QTY_SCALE)?);
-        let size = levels.get(&p).copied().unwrap_or(0) + d;
+        let size = levels.get(&p).copied().unwrap_or(0)
+            .checked_add(d)
+            .ok_or_else(|| Error::BadNumber("quantity sum overflow".to_string()))?;
         if size < 0 {
             return Err(Error::NegativeQuantity);
         }
@@ -320,6 +322,17 @@ mod tests {
         assert_eq!(r.negative_quantity_errors, 1);
         assert_eq!(r.other_errors, 1);
         assert!(!r.parity_ok());
+    }
+
+    #[test]
+    fn delta_quantity_overflow_is_an_error_not_a_crash_or_wrapped_book() {
+        let mut book = Book::default();
+        // 2 fractional digits: this quantity reaches i64::MAX exactly.
+        assert_eq!(book.delta("yes", "0.5000", "92233720368547758.07"), Ok(()));
+        assert!(matches!(
+            book.delta("yes", "0.5000", "0.01"),
+            Err(Error::BadNumber(_))
+        ));
     }
 
     #[test]
