@@ -56,13 +56,13 @@ try {
     Stop-Process -Id $busy.Id -Force -ErrorAction SilentlyContinue
     
     $polite = New-Dummy @'
-    import os
-    import sys
-    import time
-    marker = sys.argv[1]
-    while not os.path.exists(marker):
-        time.sleep(0.2)
-    '@
+import os
+import sys
+import time
+marker = sys.argv[1]
+while not os.path.exists(marker):
+    time.sleep(0.2)
+'@
     Start-Sleep -Seconds 1
     $r = Invoke-FrozenWorkerRecovery (Fake $polite)
     Check "worker that honours the stop request is left to exit ($r)" ($r -eq 'EXITED')
