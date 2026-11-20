@@ -38,35 +38,45 @@ function New-Dummy([string]$code) {
 }
 function Fake($p) { [pscustomobject]@{ pid = $p.Id; journal_process_pid = 0; heartbeat_utc = [DateTime]::UtcNow.AddMinutes(-20).ToString('o') } }
 
-$idle = New-Dummy 'import time; time.sleep(600)'
-Check 'idle dummy was alive before recovery' ([bool](Get-Process -Id $idle.Id -ErrorAction SilentlyContinue))
-Start-Sleep -Seconds 1
-$r = Invoke-FrozenWorkerRecovery (Fake $idle)
-Start-Sleep -Seconds 1
-Check "idle frozen worker is terminated ($r)" (($r -eq 'KILLED') -and -not (Get-Process -Id $idle.Id -ErrorAction SilentlyContinue))
-Check 'stop request is cleaned up after a kill' (-not (Test-Path $stopRequest))
-
-$busy = New-Dummy 'while True: pass'
-Check 'busy dummy was alive before recovery' ([bool](Get-Process -Id $busy.Id -ErrorAction SilentlyContinue))
-Start-Sleep -Seconds 1
-$r = Invoke-FrozenWorkerRecovery (Fake $busy)
-Check "busy worker is NOT terminated ($r)" (($r -eq 'BUSY') -and [bool](Get-Process -Id $busy.Id -ErrorAction SilentlyContinue))
-Stop-Process -Id $busy.Id -Force -ErrorAction SilentlyContinue
-
-$polite = New-Dummy @'
-import os
-import sys
-import time
-marker = sys.argv[1]
-while not os.path.exists(marker):
-    time.sleep(0.2)
-'@
-Start-Sleep -Seconds 1
-$r = Invoke-FrozenWorkerRecovery (Fake $polite)
-Check "worker that honours the stop request is left to exit ($r)" ($r -eq 'EXITED')
-Stop-Process -Id $polite.Id -Force -ErrorAction SilentlyContinue
-
-$log = Get-Content $supLog -Raw
-Check 'decisions are logged' (($log -match 'FROZEN_WORKER_TERMINATED') -and ($log -match 'FROZEN_WORKER_BUSY_NOT_TERMINATED'))
-Remove-Item -Recurse -Force $RuntimeHome -ErrorAction SilentlyContinue
+$idle = $null; $busy = $null; $polite = $null
+try {
+    $idle = New-Dummy 'import time; time.sleep(600)'
+    Check 'idle dummy was alive before recovery' ([bool](Get-Process -Id $idle.Id -ErrorAction SilentlyContinue))
+    Start-Sleep -Seconds 1
+    $r = Invoke-FrozenWorkerRecovery (Fake $idle)
+    Start-Sleep -Seconds 1
+    Check "idle frozen worker is terminated ($r)" (($r -eq 'KILLED') -and -not (Get-Process -Id $idle.Id -ErrorAction SilentlyContinue))
+    Check 'stop request is cleaned up after a kill' (-not (Test-Path $stopRequest))
+    
+    $busy = New-Dummy 'while True: pass'
+    Check 'busy dummy was alive before recovery' ([bool](Get-Process -Id $busy.Id -ErrorAction SilentlyContinue))
+    Start-Sleep -Seconds 1
+    $r = Invoke-FrozenWorkerRecovery (Fake $busy)
+    Check "busy worker is NOT terminated ($r)" (($r -eq 'BUSY') -and [bool](Get-Process -Id $busy.Id -ErrorAction SilentlyContinue))
+    Stop-Process -Id $busy.Id -Force -ErrorAction SilentlyContinue
+    
+    $polite = New-Dummy @'
+    import os
+    import sys
+    import time
+    marker = sys.argv[1]
+    while not os.path.exists(marker):
+        time.sleep(0.2)
+    '@
+    Start-Sleep -Seconds 1
+    $r = Invoke-FrozenWorkerRecovery (Fake $polite)
+    Check "worker that honours the stop request is left to exit ($r)" ($r -eq 'EXITED')
+    Stop-Process -Id $polite.Id -Force -ErrorAction SilentlyContinue
+    
+    $log = Get-Content $supLog -Raw
+    Check 'decisions are logged' (($log -match 'FROZEN_WORKER_TERMINATED') -and ($log -match 'FROZEN_WORKER_BUSY_NOT_TERMINATED'))
+} finally {
+    # A failed assertion must never leave a synthetic busy-loop process running.
+    foreach ($dummy in @($idle, $busy, $polite)) {
+        if ($null -ne $dummy) {
+            Stop-Process -Id $dummy.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Remove-Item -Recurse -Force $RuntimeHome -ErrorAction SilentlyContinue
+}
 if ($failures) { "$failures check(s) FAILED"; exit 1 } else { 'all frozen-worker checks passed'; exit 0 }
