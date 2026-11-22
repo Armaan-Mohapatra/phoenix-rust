@@ -958,13 +958,19 @@ mod tests {
     }
 
     #[test]
-    fn golden_economic_fingerprint_is_pinned() {
+    fn golden_economic_results_are_pinned() {
+        // Pins the economic RESULTS only. economic_fingerprint() also hashes code_revision(),
+        // which embeds the git HEAD (build.rs) and therefore changes on every commit by design.
         // Any change here means campaign economics changed; review before re-pinning.
         let cases = generate(&Scenario::shaded(2, 4, 7));
         let r = run(&cases, &default_grid(), &CampaignConfig::default()).unwrap();
+        let v = serde_json::json!({
+            "results": r.results, "candidates": r.candidates,
+            "splits": r.split_counts, "normalized": r.normalized_input_sha256,
+        });
         assert_eq!(
-            economic_fingerprint(&r),
-            "eabcd29fb00c66eabcd4736beceb8b3e2dd6d1028e09d5fdaf554a90346b1e8f"
+            format!("{:x}", Sha256::digest(v.to_string().as_bytes())),
+            "bf4123a18294ff3084d8dfe837da3508a5d3f04f8f6a519fae8693c10dd5e76b"
         );
     }
 
