@@ -29,6 +29,10 @@ while [ $# -gt 0 ]; do
 done
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
 export RUST_BACKTRACE=0
+# Archive/index safety checks deliberately reject any symlinked ancestor path. macOS
+# $TMPDIR lives under /var -> /private/var, so fixtures need the canonical path.
+_t="${TMPDIR:-/tmp}"
+export TMPDIR="$(cd "$_t" && pwd -P)/"
 LOGDIR="$(mktemp -d "${TMPDIR:-/tmp}/phoenix-verify.XXXXXX")"
 LINES=()
 FAILS=0
