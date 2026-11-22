@@ -962,7 +962,10 @@ mod tests {
         // Any change here means campaign economics changed; review before re-pinning.
         let cases = generate(&Scenario::shaded(2, 4, 7));
         let r = run(&cases, &default_grid(), &CampaignConfig::default()).unwrap();
-        assert_eq!(economic_fingerprint(&r), "eabcd29fb00c66eabcd4736beceb8b3e2dd6d1028e09d5fdaf554a90346b1e8f");
+        assert_eq!(
+            economic_fingerprint(&r),
+            "eabcd29fb00c66eabcd4736beceb8b3e2dd6d1028e09d5fdaf554a90346b1e8f"
+        );
     }
 
     #[test]
@@ -973,8 +976,14 @@ mod tests {
         assert_eq!(r.settlement_evidence, SETTLEMENT_EVIDENCE_VENUE_REPORTED);
         let j = serde_json::to_value(&r).unwrap();
         assert!(j["fee_basis"].as_str().unwrap().contains("UNAUTHENTICATED"));
-        assert!(r.limitations.iter().any(|l| l.contains("hypothetical") && l.contains("UNVERIFIED")));
-        assert!(r.limitations.iter().any(|l| l.contains("not independently corroborated")));
+        assert!(r
+            .limitations
+            .iter()
+            .any(|l| l.contains("hypothetical") && l.contains("UNVERIFIED")));
+        assert!(r
+            .limitations
+            .iter()
+            .any(|l| l.contains("not independently corroborated")));
     }
 
     #[test]

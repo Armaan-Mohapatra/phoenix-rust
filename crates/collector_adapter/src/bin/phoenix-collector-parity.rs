@@ -18,6 +18,9 @@ fn main() {
     });
     let lines = BufReader::new(file).lines().map_while(Result::ok);
     let report = replay(lines);
-    println!("{}", serde_json::to_string(&report).expect("report serializes"));
+    println!(
+        "{}",
+        serde_json::to_string(&report).expect("report serializes")
+    );
     std::process::exit(if report.parity_ok() { 0 } else { 2 });
 }

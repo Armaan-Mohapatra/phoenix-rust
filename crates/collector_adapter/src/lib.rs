@@ -33,7 +33,8 @@ pub fn parse_fixed(s: &str, scale: u32) -> Result<i64, Error> {
         None => (false, t),
     };
     let (int_part, frac_part) = body.split_once('.').unwrap_or((body, ""));
-    if int_part.is_empty() && frac_part.is_empty() || !int_part.chars().all(|c| c.is_ascii_digit())
+    if int_part.is_empty() && frac_part.is_empty()
+        || !int_part.chars().all(|c| c.is_ascii_digit())
         || !frac_part.chars().all(|c| c.is_ascii_digit())
     {
         return Err(Error::BadNumber(s.to_string()));
@@ -46,8 +47,14 @@ pub fn parse_fixed(s: &str, scale: u32) -> Result<i64, Error> {
     while frac.len() < scale {
         frac.push('0');
     }
-    let digits = format!("{}{}", if int_part.is_empty() { "0" } else { int_part }, frac);
-    let v: i64 = digits.parse().map_err(|_| Error::BadNumber(s.to_string()))?;
+    let digits = format!(
+        "{}{}",
+        if int_part.is_empty() { "0" } else { int_part },
+        frac
+    );
+    let v: i64 = digits
+        .parse()
+        .map_err(|_| Error::BadNumber(s.to_string()))?;
     Ok(if neg { -v } else { v })
 }
 
@@ -98,7 +105,11 @@ impl Book {
         }
         Ok(out)
     }
-    pub fn snapshot(&mut self, yes: &[(String, String)], no: &[(String, String)]) -> Result<(), Error> {
+    pub fn snapshot(
+        &mut self,
+        yes: &[(String, String)],
+        no: &[(String, String)],
+    ) -> Result<(), Error> {
         let (y, n) = (Self::levels(yes)?, Self::levels(no)?);
         self.yes = y;
         self.no = n;
@@ -110,8 +121,14 @@ impl Book {
             "no" => &mut self.no,
             other => return Err(Error::UnknownSide(other.to_string())),
         };
-        let (p, d) = (parse_fixed(price, PRICE_SCALE)?, parse_fixed(delta, QTY_SCALE)?);
-        let size = levels.get(&p).copied().unwrap_or(0)
+        let (p, d) = (
+            parse_fixed(price, PRICE_SCALE)?,
+            parse_fixed(delta, QTY_SCALE)?,
+        );
+        let size = levels
+            .get(&p)
+            .copied()
+            .unwrap_or(0)
             .checked_add(d)
             .ok_or_else(|| Error::BadNumber("quantity sum overflow".to_string()))?;
         if size < 0 {
@@ -138,8 +155,17 @@ impl Book {
 }
 
 fn oracle_quotes(o: &Oracle) -> Result<Quotes, Error> {
-    let f = |v: &Option<String>| v.as_deref().map(|s| parse_fixed(s, PRICE_SCALE)).transpose();
-    Ok(Quotes { yes_bid: f(&o.yes_bid)?, no_bid: f(&o.no_bid)?, yes_ask: f(&o.yes_ask)?, no_ask: f(&o.no_ask)? })
+    let f = |v: &Option<String>| {
+        v.as_deref()
+            .map(|s| parse_fixed(s, PRICE_SCALE))
+            .transpose()
+    };
+    Ok(Quotes {
+        yes_bid: f(&o.yes_bid)?,
+        no_bid: f(&o.no_bid)?,
+        yes_ask: f(&o.yes_ask)?,
+        no_ask: f(&o.no_ask)?,
+    })
 }
 
 #[derive(Debug, Default, Serialize, PartialEq, Eq)]
@@ -157,8 +183,11 @@ pub struct Report {
 
 impl Report {
     pub fn parity_ok(&self) -> bool {
-        self.lines > 0 && self.snapshots > 0 && self.quote_mismatches == 0
-            && self.negative_quantity_errors == 0 && self.other_errors == 0
+        self.lines > 0
+            && self.snapshots > 0
+            && self.quote_mismatches == 0
+            && self.negative_quantity_errors == 0
+            && self.other_errors == 0
             && self.out_of_order_seq == 0
     }
 }
@@ -235,7 +264,10 @@ pub fn replay<I: IntoIterator<Item = String>>(lines: I) -> Report {
         let applied = match line.t.as_str() {
             "snap" => {
                 report.snapshots += 1;
-                book.snapshot(line.yes.as_deref().unwrap_or(&[]), line.no.as_deref().unwrap_or(&[]))
+                book.snapshot(
+                    line.yes.as_deref().unwrap_or(&[]),
+                    line.no.as_deref().unwrap_or(&[]),
+                )
             }
             "delta" => {
                 report.deltas += 1;
@@ -275,7 +307,9 @@ mod tests {
     use super::*;
 
     fn line(t: &str, seq: u64, extra: &str, yb: &str, nb: &str, ya: &str, na: &str) -> String {
-        format!(r#"{{"t":"{t}","seq":{seq},"sid":2,"ticker":"M",{extra}"oracle":{{"yes_bid":{yb},"no_bid":{nb},"yes_ask":{ya},"no_ask":{na}}}}}"#)
+        format!(
+            r#"{{"t":"{t}","seq":{seq},"sid":2,"ticker":"M",{extra}"oracle":{{"yes_bid":{yb},"no_bid":{nb},"yes_ask":{ya},"no_ask":{na}}}}}"#
+        )
     }
 
     #[test]
@@ -291,31 +325,85 @@ mod tests {
 
     #[test]
     fn replays_snapshot_then_deltas_and_matches_oracle() {
-        let snap = line("snap", 1, r#""yes":[["0.6000","10.00"]],"no":[["0.3800","5.00"]],"#,
-            r#""0.6000""#, r#""0.3800""#, r#""0.6200""#, r#""0.4000""#);
+        let snap = line(
+            "snap",
+            1,
+            r#""yes":[["0.6000","10.00"]],"no":[["0.3800","5.00"]],"#,
+            r#""0.6000""#,
+            r#""0.3800""#,
+            r#""0.6200""#,
+            r#""0.4000""#,
+        );
         // a new better yes bid at 0.61, then it is fully removed again
-        let add = line("delta", 2, r#""side":"yes","price":"0.6100","delta":"2.00","#,
-            r#""0.6100""#, r#""0.3800""#, r#""0.6200""#, r#""0.3900""#);
-        let rem = line("delta", 3, r#""side":"yes","price":"0.6100","delta":"-2.00","#,
-            r#""0.6000""#, r#""0.3800""#, r#""0.6200""#, r#""0.4000""#);
+        let add = line(
+            "delta",
+            2,
+            r#""side":"yes","price":"0.6100","delta":"2.00","#,
+            r#""0.6100""#,
+            r#""0.3800""#,
+            r#""0.6200""#,
+            r#""0.3900""#,
+        );
+        let rem = line(
+            "delta",
+            3,
+            r#""side":"yes","price":"0.6100","delta":"-2.00","#,
+            r#""0.6000""#,
+            r#""0.3800""#,
+            r#""0.6200""#,
+            r#""0.4000""#,
+        );
         let r = replay([snap, add, rem]);
-        assert_eq!((r.snapshots, r.deltas, r.quote_matches, r.quote_mismatches), (1, 2, 3, 0));
+        assert_eq!(
+            (r.snapshots, r.deltas, r.quote_matches, r.quote_mismatches),
+            (1, 2, 3, 0)
+        );
         assert!(r.parity_ok());
     }
 
     #[test]
     fn empty_book_has_no_quotes_and_matches_a_null_oracle() {
-        let r = replay([line("snap", 1, r#""yes":[],"no":[],"#, "null", "null", "null", "null")]);
+        let r = replay([line(
+            "snap",
+            1,
+            r#""yes":[],"no":[],"#,
+            "null",
+            "null",
+            "null",
+            "null",
+        )]);
         assert_eq!(r.quote_matches, 1);
     }
 
     #[test]
     fn mismatch_negative_quantity_and_bad_lines_are_counted_never_skipped() {
-        let snap = line("snap", 1, r#""yes":[["0.6000","1.00"]],"no":[],"#,
-            r#""0.6000""#, "null", "null", r#""0.4000""#);
-        let wrong = line("delta", 2, r#""side":"yes","price":"0.6000","delta":"1.00","#,
-            r#""0.5000""#, "null", "null", r#""0.5000""#); // oracle disagrees
-        let neg = line("delta", 3, r#""side":"no","price":"0.3000","delta":"-1.00","#, "null", "null", "null", "null");
+        let snap = line(
+            "snap",
+            1,
+            r#""yes":[["0.6000","1.00"]],"no":[],"#,
+            r#""0.6000""#,
+            "null",
+            "null",
+            r#""0.4000""#,
+        );
+        let wrong = line(
+            "delta",
+            2,
+            r#""side":"yes","price":"0.6000","delta":"1.00","#,
+            r#""0.5000""#,
+            "null",
+            "null",
+            r#""0.5000""#,
+        ); // oracle disagrees
+        let neg = line(
+            "delta",
+            3,
+            r#""side":"no","price":"0.3000","delta":"-1.00","#,
+            "null",
+            "null",
+            "null",
+            "null",
+        );
         let r = replay([snap, wrong, neg, "not json".to_string()]);
         assert_eq!(r.quote_mismatches, 1);
         assert_eq!(r.first_mismatch_line, Some(2));
@@ -337,8 +425,15 @@ mod tests {
 
     #[test]
     fn missing_initial_snapshot_never_certifies_parity() {
-        let orphan = line("delta", 2, r#""side":"yes","price":"0.5000","delta":"1.00","#,
-            r#""0.5000""#, "null", "null", r#""0.5000""#);
+        let orphan = line(
+            "delta",
+            2,
+            r#""side":"yes","price":"0.5000","delta":"1.00","#,
+            r#""0.5000""#,
+            "null",
+            "null",
+            r#""0.5000""#,
+        );
         let report = replay([orphan]);
         assert_eq!(report.other_errors, 1);
         assert!(!report.parity_ok());
@@ -346,9 +441,25 @@ mod tests {
 
     #[test]
     fn missing_seq_and_switched_market_fail_closed() {
-        let snap = line("snap", 1, r#""yes":[],"no":[],"#, "null", "null", "null", "null");
-        let absent_seq = line("delta", 2, r#""side":"yes","price":"0.5000","delta":"1.00","#,
-            r#""0.5000""#, "null", "null", r#""0.5000""#).replace(r#""seq":2"#, r#""seq":null"#);
+        let snap = line(
+            "snap",
+            1,
+            r#""yes":[],"no":[],"#,
+            "null",
+            "null",
+            "null",
+            "null",
+        );
+        let absent_seq = line(
+            "delta",
+            2,
+            r#""side":"yes","price":"0.5000","delta":"1.00","#,
+            r#""0.5000""#,
+            "null",
+            "null",
+            r#""0.5000""#,
+        )
+        .replace(r#""seq":2"#, r#""seq":null"#);
         let report = replay([snap.clone(), absent_seq]);
         assert_eq!(report.out_of_order_seq, 1);
         assert!(!report.parity_ok());
@@ -361,11 +472,26 @@ mod tests {
 
     #[test]
     fn delta_with_new_subscription_id_requires_a_fresh_snapshot() {
-        let snap = line("snap", 1, r#""yes":[],"no":[],"#, "null", "null", "null", "null");
+        let snap = line(
+            "snap",
+            1,
+            r#""yes":[],"no":[],"#,
+            "null",
+            "null",
+            "null",
+            "null",
+        );
         // A new connection may reuse numeric sequence values. SID must still match.
-        let wrong_sid = line("delta", 2, r#""side":"yes","price":"0.5000","delta":"1.00","#,
-            r#""0.5000""#, "null", "null", r#""0.5000""#)
-            .replace(r#""sid":2"#, r#""sid":3"#);
+        let wrong_sid = line(
+            "delta",
+            2,
+            r#""side":"yes","price":"0.5000","delta":"1.00","#,
+            r#""0.5000""#,
+            "null",
+            "null",
+            r#""0.5000""#,
+        )
+        .replace(r#""sid":2"#, r#""sid":3"#);
         let report = replay([snap, wrong_sid]);
         assert_eq!(report.out_of_order_seq, 1);
         assert!(!report.parity_ok());
@@ -373,9 +499,20 @@ mod tests {
 
     #[test]
     fn out_of_order_sequence_is_reported() {
-        let mk = |seq: u64| format!(
-            r#"{{"t":"delta","seq":{seq},"sid":2,"ticker":"M","side":"yes","price":"0.5000","delta":"1.00","oracle":{{"yes_bid":"0.5000","no_bid":null,"yes_ask":null,"no_ask":"0.5000"}}}}"#);
-        let snap = line("snap", 1, r#""yes":[],"no":[],"#, "null", "null", "null", "null");
+        let mk = |seq: u64| {
+            format!(
+                r#"{{"t":"delta","seq":{seq},"sid":2,"ticker":"M","side":"yes","price":"0.5000","delta":"1.00","oracle":{{"yes_bid":"0.5000","no_bid":null,"yes_ask":null,"no_ask":"0.5000"}}}}"#
+            )
+        };
+        let snap = line(
+            "snap",
+            1,
+            r#""yes":[],"no":[],"#,
+            "null",
+            "null",
+            "null",
+            "null",
+        );
         let r = replay([snap, mk(5), mk(4)]);
         assert_eq!(r.out_of_order_seq, 1);
         assert!(!r.parity_ok());
