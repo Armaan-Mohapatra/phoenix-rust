@@ -1,0 +1,28 @@
+# cargo-deny policy for the Phoenix workspace (offline research tooling; never published).
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+# Evidence-based: the exact set found in Cargo.lock at creation time. Add to this list
+# only after reading the new license; copyleft licenses are intentionally absent.
+allow = ["MIT", "Apache-2.0", "Zlib", "0BSD", "Unlicense", "Unicode-3.0"]
+confidence-threshold = 0.9
+
+[licenses.private]
+# First-party crates carry no license field.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
