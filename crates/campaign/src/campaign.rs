@@ -225,7 +225,15 @@ pub struct Report {
     pub results: Vec<ConfigReport>,
     pub resources: Resources,
     pub limitations: Vec<&'static str>,
+    /// How fees were obtained. Never "authenticated": the engine only applies a
+    /// hypothetical fee formula (standard taker rate x configured multiplier).
+    pub fee_basis: &'static str,
+    /// Settlement evidence class. Venue-reported finals are not independent corroboration.
+    pub settlement_evidence: &'static str,
 }
+
+pub const FEE_BASIS_HYPOTHETICAL: &str = "HYPOTHETICAL_STANDARD_TAKER_FORMULA_UNAUTHENTICATED";
+pub const SETTLEMENT_EVIDENCE_VENUE_REPORTED: &str = "VENUE_REPORTED_NOT_INDEPENDENT";
 
 pub fn grid_sha256(grid: &[StrategyConfig]) -> String {
     let mut h = Sha256::new();
@@ -665,7 +673,11 @@ pub fn run_source(
             threads: cfg.threads,
             batch_size: cfg.batch_size,
         },
+        fee_basis: FEE_BASIS_HYPOTHETICAL,
+        settlement_evidence: SETTLEMENT_EVIDENCE_VENUE_REPORTED,
         limitations: vec![
+            "Fees are a hypothetical standard-taker formula scaled by fee_multiplier_permille, not a historically authenticated fee schedule; net results are UNVERIFIED until real fee evidence is supplied.",
+            "Settlement outcomes are venue-reported finals, not independently corroborated.",
             "All fills are modeled taker fills against the book at arrival; no queue or maker model.",
             "Positions are held to expiration; no early exit is modeled.",
             "Cluster z-test assumes independence across clusters (time windows).",
@@ -943,6 +955,26 @@ mod tests {
             })
             .collect();
         assert!(fps.windows(2).all(|w| w[0] == w[1]), "{fps:?}");
+    }
+
+    #[test]
+    fn golden_economic_fingerprint_is_pinned() {
+        // Any change here means campaign economics changed; review before re-pinning.
+        let cases = generate(&Scenario::shaded(2, 4, 7));
+        let r = run(&cases, &default_grid(), &CampaignConfig::default()).unwrap();
+        assert_eq!(economic_fingerprint(&r), "eabcd29fb00c66eabcd4736beceb8b3e2dd6d1028e09d5fdaf554a90346b1e8f");
+    }
+
+    #[test]
+    fn report_discloses_hypothetical_fees_and_venue_only_settlement() {
+        let cases = generate(&Scenario::shaded(2, 4, 7));
+        let r = run(&cases, &default_grid()[..2], &CampaignConfig::default()).unwrap();
+        assert_eq!(r.fee_basis, FEE_BASIS_HYPOTHETICAL);
+        assert_eq!(r.settlement_evidence, SETTLEMENT_EVIDENCE_VENUE_REPORTED);
+        let j = serde_json::to_value(&r).unwrap();
+        assert!(j["fee_basis"].as_str().unwrap().contains("UNAUTHENTICATED"));
+        assert!(r.limitations.iter().any(|l| l.contains("hypothetical") && l.contains("UNVERIFIED")));
+        assert!(r.limitations.iter().any(|l| l.contains("not independently corroborated")));
     }
 
     #[test]
