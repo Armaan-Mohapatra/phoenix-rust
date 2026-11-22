@@ -1,0 +1,664 @@
+{
+  "schema": "phoenix-mac-validation-v1",
+  "verdict": "MAC_CERTIFIED_FOR_WINDOWS_TESTING",
+  "not_windows_certified": true,
+  "tested_code_commits": {
+    "phoenix-rust": "4b5325833ba5c6aefb046141b29a926027a9202c",
+    "phoenix-agent-arena": "e1d685cf79cffef571955fecfc6c6badbd4d879f",
+    "kalshi15m-market-data": "8ffc40bfa63ec184112836255deb7e38f75c76f0"
+  },
+  "branches": {
+    "phoenix-rust": "mac/phase1-replay-determinism",
+    "phoenix-agent-arena": "mac/phase3-arena-integrity",
+    "kalshi15m-market-data": "mac/phase4-collector-integrity"
+  },
+  "environment": {
+    "macos": "26.2 arm64",
+    "rustc": "1.100.0",
+    "cargo": "1.100.0",
+    "msrv_toolchain": "1.78.0",
+    "python_managed_uv": "3.12.13",
+    "uv": "0.13.9",
+    "gh": "2.105.0",
+    "cargo-nextest": "0.9.152",
+    "cargo-deny": "0.22.0",
+    "cargo-llvm-cov": "0.9.2",
+    "gitleaks": "8.30.1",
+    "sccache": "0.19.0",
+    "claude-code": "2.1.323",
+    "kalshi_cryptography": "47.0.0 (pinned; 50.0.0 evaluated in isolation)"
+  },
+  "totals": {
+    "PASS": 90,
+    "NOT_RUN": 4,
+    "BLOCKED": 2,
+    "FAIL": 1
+  },
+  "test_counts": {
+    "rust_workspace_nextest": "165 passed",
+    "arena_pytest": "177 passed",
+    "kalshi_runnable_pytest": "189 passed, 1 skipped",
+    "kalshi_frozen_strategy": "12 BLOCKED (authentic Windows strategy files absent)",
+    "rust_verify_sh": "PASS=62 FAIL=0 BLOCKED=0 NOT_RUN=3"
+  },
+  "determinism": {
+    "golden_results_sha256": "bf4123a18294ff3084d8dfe837da3508a5d3f04f8f6a519fae8693c10dd5e76b",
+    "note": "results-only pin (phoenix-campaign golden_economic_results_are_pinned); economic_fingerprint()/experiment_sha256 embed the git HEAD by design and differ per commit. Windows must match the pin; do not re-pin silently."
+  },
+  "evidence_labels": {
+    "fees": "HYPOTHETICAL standard-taker formula x multiplier; not an authenticated historical schedule",
+    "settlement": "venue-reported; not independent corroboration",
+    "strategy_results": "synthetic fixtures only; no profitability or market-edge claim",
+    "collector_to_arena_quote_bridge": "fixture contract only; authentic producer is not in these repositories"
+  },
+  "open_items": [
+    {
+      "id": "cryptography-advisories",
+      "severity": "medium",
+      "status": "OPEN",
+      "detail": "kalshi lockfile pins cryptography 47.0.0 (X.509 chain, PKCS7 decrypt, bundled OpenSSL advisories; fixed in 48.0.1/49/50). Collector only uses it for RSA-PSS/Ed25519 request signing. Signing tests and the full 189-test runnable suite pass on 50.0.0 in an isolated venv. Pin change (pyproject <48) left for explicit owner approval."
+    },
+    {
+      "id": "frozen-strategy-tests",
+      "severity": "info",
+      "status": "BLOCKED",
+      "detail": "12 tests need gitignored strategy/ files that exist only on Windows."
+    },
+    {
+      "id": "authentic-quote-bridge",
+      "severity": "high",
+      "status": "BLOCKED",
+      "detail": "Producer of kalshi_quotes.csv is outside these repos; verify on Windows."
+    },
+    {
+      "id": "windows-runtime-original-data",
+      "severity": "high",
+      "status": "NOT_RUN",
+      "detail": "Native Windows build/tests, original-data replay parity, durable-archive symlink test, hftbacktest build."
+    }
+  ],
+  "checks": [
+    {
+      "id": "rust.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --all -- --check"
+    },
+    {
+      "id": "rust.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --workspace --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.cargo-test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --workspace --all-targets"
+    },
+    {
+      "id": "rust.doctest",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --workspace --doc"
+    },
+    {
+      "id": "rust.nextest",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo nextest run --workspace --all-targets"
+    },
+    {
+      "id": "rust.deny",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo deny check"
+    },
+    {
+      "id": "rust.determinism-x3",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "bash -c for i in 1 2 3; do cargo test -p phoenix-campaign -- deterministic golden streaming cached corrupt different || exit 1; done"
+    },
+    {
+      "id": "rust.msrv-1.78",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "env PATH=<HOME>/.rustup/toolchains/1.78.0-aarch64-apple-darwin/bin:/opt/homebrew/bin:<HOME>/.rustup/toolchains/stable-aarch64-apple-darwin/bin:/opt/homebrew/bin:<HOME>/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:<HOME>/.local/bin:<HOME>/.nvm/versions/node/v24.22.3/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/opt/homebrew/bin:<HOME>/.spicetify CARGO_TARGET_DIR=<PHOENIX>/.cargo-target-msrv cargo check --workspace --locked"
+    },
+    {
+      "id": "rust.int.contract-economics.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.contract-economics.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.contract-economics.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.contract-economics.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.disk-identity.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.disk-identity.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.disk-identity.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.disk-identity.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.durable-archive.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.durable-archive.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.durable-archive.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.durable-archive.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.historical-input.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.historical-input.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.historical-input.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.historical-input.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.indexed-archive.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.indexed-archive.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.indexed-archive.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.indexed-archive.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.kalshi-read-only.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.kalshi-read-only.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.kalshi-read-only.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.kalshi-read-only.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.kalshi-wire.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.kalshi-wire.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.kalshi-wire.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.kalshi-wire.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.paper-journal.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.paper-journal.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.paper-journal.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.paper-journal.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.paper-orchestrator.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.paper-orchestrator.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.paper-orchestrator.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.paper-orchestrator.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.parquet-batch.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.parquet-batch.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.parquet-batch.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.parquet-batch.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.performance-report.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.performance-report.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.performance-report.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.performance-report.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.real-btc-replay.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.real-btc-replay.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.real-btc-replay.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.real-btc-replay.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.real-ledger-parity.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.real-ledger-parity.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.real-ledger-parity.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.real-ledger-parity.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.risk-guard.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.risk-guard.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.risk-guard.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.risk-guard.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.source-loader.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.source-loader.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.source-loader.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.source-loader.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.source-ports.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.source-ports.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.source-ports.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.source-ports.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.vertical-fixture.test",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --all-targets"
+    },
+    {
+      "id": "rust.int.vertical-fixture.doc",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --doc"
+    },
+    {
+      "id": "rust.int.vertical-fixture.clippy",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo clippy --locked --all-targets -- -D warnings"
+    },
+    {
+      "id": "rust.int.vertical-fixture.fmt",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo fmt --check"
+    },
+    {
+      "id": "rust.int.disk-identity.ignored-scale",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "cargo test --locked --release -- --ignored"
+    },
+    {
+      "id": "rust.verify-sh",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "bash scripts/verify.sh --report <PHOENIX>/checkpoints/cert3/verify_sh.txt"
+    },
+    {
+      "id": "rust.int.durable-archive.windows-symlink-test",
+      "status": "NOT_RUN",
+      "exit": null,
+      "detail": "ignored: needs Windows Developer Mode/admin symlinks"
+    },
+    {
+      "id": "rust.int.hftbacktest-adapter",
+      "status": "NOT_RUN",
+      "exit": null,
+      "detail": "opt-in upstream build (--with-hft); not applicable to Mac gate"
+    },
+    {
+      "id": "rust.historical-original-data-replay",
+      "status": "NOT_RUN",
+      "exit": null,
+      "detail": "original Windows finalized archives unavailable on Mac"
+    },
+    {
+      "id": "rust.windows-runtime",
+      "status": "NOT_RUN",
+      "exit": null,
+      "detail": "scripts/validate-phoenix-locally.ps1 must run on Windows"
+    },
+    {
+      "id": "arena.compile",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "<PHOENIX>/.venvs/arena/bin/python -m compileall -q ."
+    },
+    {
+      "id": "arena.imports",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "<PHOENIX>/.venvs/arena/bin/python -c import arena, arena_controller, arena_maintenance, arena_reporting, continuous_paper, live_performance, settlement_recovery, oslock, competition, catalog"
+    },
+    {
+      "id": "arena.unittest",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "<PHOENIX>/.venvs/arena/bin/python -m unittest discover -s . -p test_*.py"
+    },
+    {
+      "id": "arena.pytest",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "<PHOENIX>/.venvs/arena/bin/python -m pytest -q"
+    },
+    {
+      "id": "arena.lock-and-ledger",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "<PHOENIX>/.venvs/arena/bin/python -m pytest -q test_oslock.py test_competition.py test_collector_quote_contract.py"
+    },
+    {
+      "id": "arena.pip-audit",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "uvx pip-audit -r requirements-dev.lock.txt --no-deps --disable-pip"
+    },
+    {
+      "id": "kalshi.compile",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "<PHOENIX>/.venvs/kalshi/bin/python -m compileall -q src scripts tests"
+    },
+    {
+      "id": "kalshi.pytest-runnable",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "<PHOENIX>/.venvs/kalshi/bin/python -m pytest -q --deselect tests/test_core.py::FrozenStrategyTests --junitxml <PHOENIX>/checkpoints/cert3/kalshi_runnable.xml"
+    },
+    {
+      "id": "kalshi.targeted",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "<PHOENIX>/.venvs/kalshi/bin/python -m pytest -q tests/test_book_integrity.py tests/test_auth_signing.py tests/test_phoenix_report.py"
+    },
+    {
+      "id": "kalshi.frozen-strategy",
+      "status": "BLOCKED",
+      "exit": 1,
+      "detail": "frozen-strategy tests: total=12 passed=0 blocked_missing_windows_strategy_files=12 other_failures=0 []"
+    },
+    {
+      "id": "kalshi.pip-audit",
+      "status": "FAIL",
+      "exit": 1,
+      "detail": "uvx pip-audit -r requirements-lock.txt --no-deps --disable-pip"
+    },
+    {
+      "id": "gitleaks.phoenix-rust",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "gitleaks detect --no-banner --redact"
+    },
+    {
+      "id": "gitleaks.phoenix-agent-arena",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "gitleaks detect --no-banner --redact"
+    },
+    {
+      "id": "gitleaks.kalshi15m-market-data",
+      "status": "PASS",
+      "exit": 0,
+      "detail": "gitleaks detect --no-banner --redact"
+    },
+    {
+      "id": "cross.authentic-collector-to-arena-bridge",
+      "status": "BLOCKED",
+      "exit": null,
+      "detail": "producer of kalshi_quotes.csv is not in these repos; fixture contract only"
+    }
+  ]
+}
