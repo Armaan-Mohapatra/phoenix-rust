@@ -90,7 +90,7 @@ else
   fi
   if command -v rustup >/dev/null 2>&1 && rustup run 1.78.0 rustc --version >/dev/null 2>&1; then
     CARGO_TARGET_DIR="$CARGO_TARGET_DIR/msrv" gate "root/msrv-1.78-check" "$ROOT" \
-      cargo +1.78.0 check $OFFLINE --workspace --all-targets
+      rustup run 1.78.0 cargo check $OFFLINE --workspace --all-targets
   else
     record BLOCKED "root/msrv-1.78-check" "Rust 1.78.0 toolchain not installed"
   fi
