@@ -38,6 +38,7 @@ try {
     Check 'relative env override resolves against collector working directory' ((Get-LedgerPath) -eq [IO.Path]::GetFullPath((Join-Path $ProjectRoot 'relative-env\paper_ledger.sqlite3'))) 
     $env:KALSHI15M_LEDGER_PATH = 'D:\override\ledger.sqlite3'
     Remove-Item Env:KALSHI15M_LEDGER_PATH
+    Set-Content -LiteralPath (Join-Path $RuntimeHome 'runtime\ledger_path.txt') -Value 'X:\ledger\paper_ledger.sqlite3'
 
     $rsv = Get-Reserve
     Check 'a missing ledger volume counts as no free space and pauses' ($rsv.ledger_free -eq 0 -and (Get-ReserveReasons $rsv) -match '^LEDGER_VOLUME_RESERVE')
@@ -91,10 +92,10 @@ try {
     # Disk pause is one-shot: the stop script gets a 1-second wait, not its 10-minute default.
     $pauseCalls = Join-Path $RuntimeHome 'pause-calls.txt'
     $stopScript = Join-Path $scripts 'stop.ps1'
-    Set-Content -LiteralPath $stopScript -Value "param([int]`$GracefulWaitSeconds,[switch]`$KeepSupervisorPausedOnTimeout); Add-Content -LiteralPath '$pauseCalls' -Value `$GracefulWaitSeconds; Set-Content -LiteralPath '$manualStop' -Value 'manual_stop'; Set-Content -LiteralPath '$stopRequest' -Value 'stop'"
-    function Test-StatusOwnership { param($status) return $true }
     $manualStop = Join-Path $RuntimeHome 'runtime\worker.manual-stop'
     $stopRequest = Join-Path $RuntimeHome 'runtime\stop.request'
+    Set-Content -LiteralPath $stopScript -Value "param([int]`$GracefulWaitSeconds,[switch]`$KeepSupervisorPausedOnTimeout); Add-Content -LiteralPath '$pauseCalls' -Value `$GracefulWaitSeconds; Set-Content -LiteralPath '$manualStop' -Value 'manual_stop'; Set-Content -LiteralPath '$stopRequest' -Value 'stop'"
+    function Test-StatusOwnership { param($status) return $true }
     Remove-Item -LiteralPath $manualStop, $stopRequest -Force -ErrorAction SilentlyContinue
     $firstPause = Request-DiskPause ([pscustomobject]@{ pid = 42 }) @('LEDGER_VOLUME_RESERVE')
     $secondPause = Request-DiskPause ([pscustomobject]@{ pid = 42 }) @('LEDGER_VOLUME_RESERVE')
