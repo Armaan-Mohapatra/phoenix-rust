@@ -99,6 +99,10 @@ try {
     Check 'disk pause writes both durable markers once' ($firstPause -eq 'REQUESTED' -and $secondPause -eq 'ALREADY_REQUESTED' -and (Test-Path -LiteralPath $manualStop) -and (Test-Path -LiteralPath $stopRequest))
     Check 'stop request remains present for the worker to consume' ((Get-Content -LiteralPath $stopRequest -Raw).Trim() -eq 'stop')
     Check 'manual stop marker prevents automatic restart' ((Get-Content -LiteralPath $manualStop -Raw).Trim() -eq 'manual_stop')
+    Remove-Item -LiteralPath $manualStop, $stopRequest -Force
+    function Test-StatusOwnership { param($status) return $false }
+    $unownedPause = Request-DiskPause ([pscustomobject]@{ pid = 99 }) @('LEDGER_VOLUME_RESERVE')
+    Check 'unowned listener is never sent a stop request' ($unownedPause -eq 'UNOWNED' -and -not (Test-Path -LiteralPath $manualStop) -and -not (Test-Path -LiteralPath $stopRequest))
     Remove-Item Function:\Test-StatusOwnership
 
     # PID reuse: the process found after the idle check is not the one recorded before the stop request.
