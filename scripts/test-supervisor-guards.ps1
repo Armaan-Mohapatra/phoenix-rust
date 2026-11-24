@@ -89,19 +89,16 @@ try {
     Assert-PaperOnly ([pscustomobject]@{ mode = 'PAPER_ONLY'; exchange_write_calls = 0; orders_submitted_to_exchange = 0 })
     Check 'verified paper-only status passes without a stop' (-not (Test-Path -LiteralPath $stopMarker))
 
-    # Disk pause is one-shot: the stop script gets a 1-second wait, not its 10-minute default.
-    $pauseCalls = Join-Path $RuntimeHome 'pause-calls.txt'
-    $stopScript = Join-Path $scripts 'stop.ps1'
+    # Disk pause is nonblocking and idempotent: the worker retains stop.request until it exits.
     $manualStop = Join-Path $RuntimeHome 'runtime\worker.manual-stop'
     $stopRequest = Join-Path $RuntimeHome 'runtime\stop.request'
-    Set-Content -LiteralPath $stopScript -Value "param([int]`$GracefulWaitSeconds,[switch]`$KeepSupervisorPausedOnTimeout); Add-Content -LiteralPath '$pauseCalls' -Value `$GracefulWaitSeconds; Set-Content -LiteralPath '$manualStop' -Value 'manual_stop'; Set-Content -LiteralPath '$stopRequest' -Value 'stop'"
     function Test-StatusOwnership { param($status) return $true }
     Remove-Item -LiteralPath $manualStop, $stopRequest -Force -ErrorAction SilentlyContinue
     $firstPause = Request-DiskPause ([pscustomobject]@{ pid = 42 }) @('LEDGER_VOLUME_RESERVE')
     $secondPause = Request-DiskPause ([pscustomobject]@{ pid = 42 }) @('LEDGER_VOLUME_RESERVE')
-    $calls = @(Get-Content -LiteralPath $pauseCalls)
-    Check 'disk pause requested once, then recognized as already requested' ($firstPause -eq 'REQUESTED' -and $secondPause -eq 'ALREADY_REQUESTED' -and $calls.Count -eq 1)
-    Check 'disk pause asks stop.ps1 to return promptly' ($calls.Count -eq 1 -and [int]$calls[0] -eq 1)
+    Check 'disk pause writes both durable markers once' ($firstPause -eq 'REQUESTED' -and $secondPause -eq 'ALREADY_REQUESTED' -and (Test-Path -LiteralPath $manualStop) -and (Test-Path -LiteralPath $stopRequest))
+    Check 'stop request remains present for the worker to consume' ((Get-Content -LiteralPath $stopRequest -Raw).Trim() -eq 'stop')
+    Check 'manual stop marker prevents automatic restart' ((Get-Content -LiteralPath $manualStop -Raw).Trim() -eq 'manual_stop')
     Remove-Item Function:\Test-StatusOwnership
 
     # PID reuse: the process found after the idle check is not the one recorded before the stop request.
