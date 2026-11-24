@@ -127,14 +127,31 @@ function Get-ReserveReasons($rsv) {
 function Request-DiskPause($s, $Reasons) {
     if (-not (Test-StatusOwnership $s)) { return 'UNOWNED' }
     $stopRequest = Join-Path $RuntimeHome 'runtime\stop.request'
-    # stop.ps1 writes the durable manual-stop marker before waiting. Do not invoke it
-    # every supervisor poll: its default wait is 10 minutes and would starve our heartbeat.
-    if ((Test-Path -LiteralPath $manualStop) -or (Test-Path -LiteralPath $stopRequest)) {
-        return 'ALREADY_REQUESTED'
+    # The worker polls stop.request itself. Write durable markers and return immediately:
+    # stop.ps1's bounded wait can clear stop.request after timeout, before a stalled event
+    # loop sees it, and a long wait would starve the supervisor heartbeat.
+    $changed = $false
+    foreach ($entry in @(
+        @{ path = $manualStop; value = 'manual_stop' },
+        @{ path = $stopRequest; value = 'stop' }
+    )) {
+        if (-not (Test-Path -LiteralPath $entry.path -PathType Leaf)) {
+            $temporary = "$($entry.path).tmp"
+            try {
+                Set-Content -LiteralPath $temporary -Value $entry.value -Encoding ascii
+                Move-Item -LiteralPath $temporary -Destination $entry.path -Force
+                $changed = $true
+            } catch {
+                Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+                throw
+            }
+        }
     }
-    & (Join-Path $scripts 'stop.ps1') -GracefulWaitSeconds 1 -KeepSupervisorPausedOnTimeout | Out-Null
-    Write-Log ("DISK_PAUSE_REQUESTED " + ($Reasons -join ';'))
-    'REQUESTED'
+    if ($changed) {
+        Write-Log ("DISK_PAUSE_REQUESTED " + ($Reasons -join ';'))
+        return 'REQUESTED'
+    }
+    'ALREADY_REQUESTED'
 }
 function Get-Memory {
     $os = Get-CimInstance Win32_OperatingSystem
