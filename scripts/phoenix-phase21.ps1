@@ -62,10 +62,10 @@ $MaxQueueEvents = 12000
 $FrozenHeartbeatSeconds = 600
 $FrozenStopWaitSeconds = 120
 $FrozenIdleCheckSeconds = 10
-# Matches the collector's ledger CRITICAL guard (config.ledger_critical_free_bytes): the worker
-# stops itself below it, so starting or "recovering" a worker there only loops (seen 2026-11-23:
-# a supervised restart loop while the ledger volume was full).
-$LedgerCriticalFreeBytes = 1GB
+# Pause at the collector's LOW threshold, before it reaches the 1 GiB CRITICAL
+# stop. The worker disables optional capture below 5 GiB but keeps writing the ledger;
+# the supervisor stops it at this earlier reserve to protect the remaining headroom.
+$LedgerPauseFreeBytes = 5GB
 
 function Rotate([string]$path, [long]$limit) {
     if ((Test-Path -LiteralPath $path) -and (Get-Item -LiteralPath $path).Length -gt $limit) {
@@ -76,33 +76,65 @@ function Write-Log([string]$m) {
     Rotate $supLog 2MB
     Add-Content -LiteralPath $supLog -Value ("{0} {1}" -f [DateTime]::UtcNow.ToString('o'), $m)
 }
+function Resolve-LedgerPath([string]$candidate) {
+    if ([string]::IsNullOrWhiteSpace($candidate)) { throw 'Ledger path is empty.' }
+    # The collector launches Python with WorkingDirectory=$ProjectRoot. Resolve relative
+    # overrides/pointers against that same directory, not the scheduled task's CWD.
+    if (-not [IO.Path]::IsPathRooted($candidate)) { $candidate = Join-Path $ProjectRoot $candidate }
+    [IO.Path]::GetFullPath($candidate)
+}
 function Get-LedgerPath {
-    # Same precedence as the collector's Settings.ledger_path.
-    if ($env:KALSHI15M_LEDGER_PATH) { return $env:KALSHI15M_LEDGER_PATH }
+    # Same precedence and relative-path base as the collector's Settings.ledger_path.
+    if ($env:KALSHI15M_LEDGER_PATH) { return (Resolve-LedgerPath $env:KALSHI15M_LEDGER_PATH) }
     $pointer = Join-Path $RuntimeHome 'runtime\ledger_path.txt'
     if (Test-Path -LiteralPath $pointer -PathType Leaf) {
         $pointed = (Get-Content -LiteralPath $pointer -Raw).Trim()
-        if ($pointed) { return $pointed }
+        if ($pointed) { return (Resolve-LedgerPath $pointed) }
     }
-    Join-Path $RuntimeHome 'data\paper_ledger.sqlite3'
+    Resolve-LedgerPath (Join-Path $RuntimeHome 'data\paper_ledger.sqlite3')
 }
 function Get-Reserve {
-    $d = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($RuntimeHome))
+    # Unknown runtime or ledger volume capacity is zero: publish BLOCKED rather than
+    # letting a failed DriveInfo lookup terminate the loop before its heartbeat.
+    $runtimeFree = $null; $runtimeReserve = $null
+    try {
+        $runtimeDrive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RuntimeHome)))
+        $runtimeFree = $runtimeDrive.AvailableFreeSpace
+        $runtimeReserve = [Math]::Max(20GB, [long](0.15 * $runtimeDrive.TotalSize))
+    } catch { }
+    if ($null -eq $runtimeFree) { $runtimeFree = 0L }
+    if ($null -eq $runtimeReserve) { $runtimeReserve = 20GB }
+
     # An unreadable or missing ledger volume counts as zero free space: pause, never start.
-    # (PowerShell turns a property-getter exception into $null, so check for it explicitly.)
     $ledgerFree = $null
-    try { $ledgerFree = [IO.DriveInfo]::new([IO.Path]::GetPathRoot([IO.Path]::GetFullPath((Get-LedgerPath)))).AvailableFreeSpace } catch { }
+    try {
+        $ledgerRoot = [IO.Path]::GetPathRoot((Get-LedgerPath))
+        if (-not $ledgerRoot) { throw 'Ledger path has no volume root.' }
+        $ledgerFree = [IO.DriveInfo]::new($ledgerRoot).AvailableFreeSpace
+    } catch { }
     if ($null -eq $ledgerFree) { $ledgerFree = 0L }
     [pscustomobject]@{
-        free = $d.AvailableFreeSpace; reserve = [Math]::Max(20GB, [long](0.15 * $d.TotalSize))
-        ledger_free = $ledgerFree; ledger_reserve = $LedgerCriticalFreeBytes
+        free = $runtimeFree; reserve = $runtimeReserve
+        ledger_free = $ledgerFree; ledger_reserve = $LedgerPauseFreeBytes
     }
 }
 function Get-ReserveReasons($rsv) {
     $r = @()
     if ($rsv.free -lt $rsv.reserve) { $r += "DISK_RESERVE free=$($rsv.free) reserve=$($rsv.reserve)" }
-    if ($rsv.ledger_free -lt $rsv.ledger_reserve) { $r += "LEDGER_VOLUME_RESERVE free=$($rsv.ledger_free) reserve=$($rsv.ledger_reserve)" }
+    if ($rsv.ledger_free -lt $rsv.ledger_reserve) { $r += "LEDGER_VOLUME_RESERVE free=$($rsv.ledger_free) pause_reserve=$($rsv.ledger_reserve)" }
     ,$r
+}
+function Request-DiskPause($s, $Reasons) {
+    if (-not (Test-StatusOwnership $s)) { return 'UNOWNED' }
+    $stopRequest = Join-Path $RuntimeHome 'runtime\stop.request'
+    # stop.ps1 writes the durable manual-stop marker before waiting. Do not invoke it
+    # every supervisor poll: its default wait is 10 minutes and would starve our heartbeat.
+    if ((Test-Path -LiteralPath $manualStop) -or (Test-Path -LiteralPath $stopRequest)) {
+        return 'ALREADY_REQUESTED'
+    }
+    & (Join-Path $scripts 'stop.ps1') -GracefulWaitSeconds 1 -KeepSupervisorPausedOnTimeout | Out-Null
+    Write-Log ("DISK_PAUSE_REQUESTED " + ($Reasons -join ';'))
+    'REQUESTED'
 }
 function Get-Memory {
     $os = Get-CimInstance Win32_OperatingSystem
@@ -286,8 +318,10 @@ switch ($Mode) {
                 $reserveReasons = Get-ReserveReasons $rsv
                 if ($reserveReasons.Count -gt 0) {
                     # Pause, never loop: no start and no frozen-worker kill/restart while a volume is short.
-                    if (Test-StatusOwnership $s) { & (Join-Path $scripts 'stop.ps1') -KeepSupervisorPausedOnTimeout | Out-Null; Write-Log ("STOPPED_" + ($reserveReasons -join ';')) }
-                    $reasons = $reserveReasons
+                    $pauseOutcome = Request-DiskPause $s $reserveReasons
+                    if ($pauseOutcome -eq 'REQUESTED') { Write-Log ("STOPPED_" + ($reserveReasons -join ';')) }
+                    elseif ($pauseOutcome -eq 'ALREADY_REQUESTED') { $reasons += 'DISK_PAUSE_ALREADY_REQUESTED' }
+                    $reasons += $reserveReasons
                 } elseif ($s) {
                     if (-not (Test-StatusOwnership $s)) {
                         $reasons = @("PORT_${Port}_SERVED_BY_UNVERIFIED_PID_$($s.pid)")
