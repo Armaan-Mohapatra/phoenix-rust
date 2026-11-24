@@ -15,13 +15,16 @@ Supervisor states (runtime\phoenix-heartbeat.json, supervisor_state):
 param(
     [ValidateSet('start','stop','status','supervise','register','enable','disable','unregister')]
     [string]$Mode = 'status',
-    [string]$ProjectRoot = 'C:\Users\dakin\Projects\kalshi15m-phase21',
+    [Parameter(Mandatory=$true)][string]$ProjectRoot,
     [string]$RuntimeHome = 'E:\PhoenixLab\runtime\k15m-native',
-    [int]$Port = 8778,
-    [int]$PollSeconds = 30
+    [ValidateRange(1024,65535)][int]$Port = 8778,
+    [ValidateRange(5,300)][int]$PollSeconds = 30
 )
 $ErrorActionPreference = 'Stop'
 $TaskName = 'Phoenix Realtime Paper (isolated k15m)'
+$ProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
+$RuntimeHome = [IO.Path]::GetFullPath($RuntimeHome)
+if (-not (Test-Path -LiteralPath (Join-Path $ProjectRoot 'scripts\windows\start.ps1') -PathType Leaf)) { throw 'Collector project root is invalid.' }
 if ($Port -eq 8768 -or $RuntimeHome -match 'Kalshi15mNative$|KalshiData|TradingNextData') {
     throw 'Refusing the original/production runtime; this launcher is isolated only.'
 }
@@ -92,7 +95,18 @@ function Get-OwnedWorker {
 }
 function Get-AgeSeconds($utc) {
     if (-not $utc) { return $null }
-    [Math]::Round(([DateTime]::UtcNow - [DateTime]::Parse($utc).ToUniversalTime()).TotalSeconds, 1)
+    try { [Math]::Round(([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$utc).ToUniversalTime()).TotalSeconds, 1) }
+    catch { $null }
+}
+function Test-StatusOwnership($s) {
+    if (-not $s -or -not $s.pid -or -not $s.runtime_home -or $s.service -ne 'kalshi-15m-native') { return $false }
+    try {
+        if ([IO.Path]::GetFullPath([string]$s.runtime_home) -ne $RuntimeHome) { return $false }
+        $owned = Get-OwnedWorker
+        if (-not $owned -or [int]$owned.ProcessId -ne [int]$s.pid) { return $false }
+        $listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
+        return ($listeners.Count -eq 1 -and $listeners[0] -eq [int]$s.pid)
+    } catch { return $false }
 }
 function Get-CpuSeconds([int]$procId) {
     try { (Get-Process -Id $procId -ErrorAction Stop).TotalProcessorTime.TotalSeconds } catch { $null }
@@ -111,6 +125,7 @@ function Invoke-FrozenWorkerRecovery($s) {
     # The journal child flushes and exits when its parent's pipe closes, so killing only the parent
     # is the same recovery path as every checkpoint restart; nothing is killed unless BOTH are idle.
     $workerPid = [int]$s.pid; $childPid = [int]$s.journal_process_pid
+    $workerStart = (Get-Process -Id $workerPid -ErrorAction Stop).StartTime
     $stopRequest = Join-Path $RuntimeHome 'runtime\stop.request'
     'stop' | Set-Content -LiteralPath $stopRequest -Encoding ascii
     Write-Log "FROZEN_WORKER_STOP_REQUESTED pid=$workerPid journal_pid=$childPid heartbeat_age=$(Get-AgeSeconds $s.heartbeat_utc)s"
@@ -127,7 +142,12 @@ function Invoke-FrozenWorkerRecovery($s) {
         Write-Log "FROZEN_WORKER_BUSY_NOT_TERMINATED pid=$workerPid worker_idle=$workerIdle child_idle=$childIdle"
         return 'BUSY'
     }
-    Stop-Process -Id $workerPid -Force
+    $current = Get-Process -Id $workerPid -ErrorAction SilentlyContinue
+    if (-not $current -or $current.StartTime -ne $workerStart) {
+        Remove-Item -LiteralPath $stopRequest -Force -ErrorAction SilentlyContinue
+        return 'IDENTITY_CHANGED'
+    }
+    Stop-Process -InputObject $current -Force
     Write-Log "FROZEN_WORKER_TERMINATED pid=$workerPid (heartbeat silent, worker and journal process idle)"
     if ($childPid -gt 0) {
         $childDeadline = [DateTime]::UtcNow.AddSeconds(60)
@@ -140,21 +160,30 @@ function Invoke-FrozenWorkerRecovery($s) {
 function Get-HealthReasons($s, $mem) {
     $r = New-Object System.Collections.Generic.List[string]
     $fresh = Get-AgeSeconds $s.storage_latest_market_event_received_utc
-    if ($null -eq $fresh -or $fresh -gt $FreshnessLimitSeconds) { $r.Add("STALE_MARKET_EVENTS_${fresh}s") }
+    if ($null -eq $fresh -or $fresh -lt -2 -or $fresh -gt $FreshnessLimitSeconds) { $r.Add("STALE_MARKET_EVENTS_${fresh}s") }
     $hb = Get-AgeSeconds $s.heartbeat_utc
-    if ($null -eq $hb -or $hb -gt 60) { $r.Add("STALE_WORKER_HEARTBEAT_${hb}s") }
+    if ($null -eq $hb -or $hb -lt -2 -or $hb -gt 60) { $r.Add("STALE_WORKER_HEARTBEAT_${hb}s") }
     if ($s.rest_state -ne 'READY') { $r.Add("REST_$($s.rest_state)") }
     if ($s.websocket_state -ne 'READY') { $r.Add("WEBSOCKET_$($s.websocket_state)") }
     if ($s.orderbook_sequence_state -ne 'VERIFIED_CONTIGUOUS') { $r.Add("BOOK_SEQUENCE_$($s.orderbook_sequence_state)") }
-    if ([int]$s.queue_depth -ge [int](0.9 * $MaxQueueEvents)) { $r.Add("WRITER_BACKLOG_$($s.queue_depth)") }
+    $counters = @{}
+    foreach ($field in @('queue_depth','archive_manifest_failures','archive_checkpoint_write_failures','parquet_dropped_rows','journal_process_pid')) {
+        $p = $s.PSObject.Properties[$field]
+        $number = 0L
+        if (-not $p -or $null -eq $p.Value -or -not [long]::TryParse([string]$p.Value, [ref]$number) -or $number -lt 0) { $r.Add("MISSING_OR_INVALID_$field") }
+        else { $counters[$field] = $number }
+    }
+    if ($counters.parquet_dropped_rows -gt 0) { $r.Add('PARQUET_ROWS_DROPPED') }
+    if (-not $counters.journal_process_pid -or $counters.journal_process_pid -gt [int]::MaxValue -or -not (Get-Process -Id ([int]$counters.journal_process_pid) -ErrorAction SilentlyContinue)) { $r.Add('JOURNAL_PROCESS_ABSENT') }
+    if ($counters.queue_depth -ge [int](0.9 * $MaxQueueEvents)) { $r.Add("WRITER_BACKLOG_$($s.queue_depth)") }
     if ($s.storage_write_state -ne 'HEALTHY') { $r.Add("STORAGE_$($s.storage_write_state)") }
     if ($s.parquet_archive_recovery_state -match '^(FAILED_|PARTIAL_RECOVERY_|SKIPPED_LOW_DISK$|SKIPPED_RAW_BUDGET$)') {
         $r.Add("ARCHIVE_RECOVERY_$($s.parquet_archive_recovery_state)")
     }
     # Unknown or missing evidence is not success: only positive archive verification passes.
     if ($s.archive_integrity_state -notmatch '^VERIFIED_COMPLETE') { $r.Add("ARCHIVE_INTEGRITY_$($s.archive_integrity_state)") }
-    if ([int]$s.archive_manifest_failures -gt 0) { $r.Add("ARCHIVE_MANIFEST_FAILURES_$($s.archive_manifest_failures)") }
-    if ([int]$s.archive_checkpoint_write_failures -gt 0) { $r.Add("ARCHIVE_CHECKPOINT_WRITE_FAILURES_$($s.archive_checkpoint_write_failures)") }
+    if ($counters.archive_manifest_failures -gt 0) { $r.Add("ARCHIVE_MANIFEST_FAILURES_$($s.archive_manifest_failures)") }
+    if ($counters.archive_checkpoint_write_failures -gt 0) { $r.Add("ARCHIVE_CHECKPOINT_WRITE_FAILURES_$($s.archive_checkpoint_write_failures)") }
     if ($s.disk_state -and $s.disk_state -ne 'OK') { $r.Add("DISK_$($s.disk_state)") }
     if ($s.ledger_volume_state -and $s.ledger_volume_state -ne 'OK') { $r.Add("LEDGER_VOLUME_$($s.ledger_volume_state)") }
     if ($s.journal_optional_capture_state -eq 'STOPPED_JOURNAL_BUDGET') { $r.Add('JOURNAL_BUDGET_REACHED_DELTAS_STOPPED') }
@@ -203,8 +232,8 @@ function Get-TaskArgument {
     "--headless C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Mode supervise -ProjectRoot `"$ProjectRoot`" -RuntimeHome `"$RuntimeHome`" -Port $Port"
 }
 function Assert-PaperOnly($s) {
-    if ($s -and ($s.mode -ne 'PAPER_ONLY' -or [int]$s.exchange_write_calls -ne 0 -or [int]$s.orders_submitted_to_exchange -ne 0)) {
-        & (Join-Path $scripts 'stop.ps1') | Out-Null
+    if ($s -and ($s.mode -ne 'PAPER_ONLY' -or $null -eq $s.exchange_write_calls -or $null -eq $s.orders_submitted_to_exchange -or [string]$s.exchange_write_calls -ne '0' -or [string]$s.orders_submitted_to_exchange -ne '0')) {
+        & (Join-Path $scripts 'stop.ps1') -KeepSupervisorPausedOnTimeout | Out-Null
         throw 'SAFETY: worker not PAPER_ONLY or exchange writes observed; stopped.'
     }
 }
@@ -212,7 +241,7 @@ function Assert-PaperOnly($s) {
 switch ($Mode) {
     'start' { & (Join-Path $scripts 'start.ps1') }
     'stop' { & (Join-Path $scripts 'stop.ps1') }
-    'status' { $s = Get-Status; Write-Heartbeat 'STATUS_QUERY' @() $s $null | ConvertTo-Json -Depth 4 }
+    'status' { $s = Get-Status; [pscustomobject]@{ status = $s; owned = (Test-StatusOwnership $s) } | ConvertTo-Json -Depth 8 }
     'supervise' {
         # Single-instance: hold an exclusive lock for the life of the loop.
         $lockPath = Join-Path $RuntimeHome 'runtime\phoenix-supervisor.lock'
@@ -226,13 +255,14 @@ switch ($Mode) {
               try {
                 $mem = Get-Memory; $rsv = Get-Reserve; $s = Get-Status; $reasons = @(); $state = 'BLOCKED'
                 if ($rsv.free -lt $rsv.reserve) {
-                    if ($s) { & (Join-Path $scripts 'stop.ps1') | Out-Null; Write-Log "STOPPED_DISK_RESERVE free=$($rsv.free) reserve=$($rsv.reserve)" }
+                    if (Test-StatusOwnership $s) { & (Join-Path $scripts 'stop.ps1') -KeepSupervisorPausedOnTimeout | Out-Null; Write-Log "STOPPED_DISK_RESERVE free=$($rsv.free) reserve=$($rsv.reserve)" }
                     $reasons = @("DISK_RESERVE free=$($rsv.free) reserve=$($rsv.reserve)")
                 } elseif ($s) {
-                    Assert-PaperOnly $s
-                    if (-not (Test-OwnedPid ([int]$s.pid))) {
+                    if (-not (Test-StatusOwnership $s)) {
                         $reasons = @("PORT_${Port}_SERVED_BY_UNVERIFIED_PID_$($s.pid)")
-                    } elseif ($s.service_state -eq 'RECOVERING') {
+                    } else {
+                    Assert-PaperOnly $s
+                    if ($s.service_state -eq 'RECOVERING') {
                         $state = 'RECOVERING'; $reasons = @("PHASE_$($s.startup_phase)")
                         if ($s.storage_recovery_elapsed_seconds -and [double]$s.storage_recovery_elapsed_seconds -gt 1800) {
                             $state = 'DEGRADED'
@@ -250,13 +280,14 @@ switch ($Mode) {
                         $reasons = Get-HealthReasons $s $mem
                         $state = 'HEALTHY'; if ($reasons.Count -gt 0) { $state = 'DEGRADED' }
                         $hbAge = Get-AgeSeconds $s.heartbeat_utc
-                        if ($null -ne $hbAge -and $hbAge -gt $FrozenHeartbeatSeconds) {
+                        if ($null -ne $hbAge -and $hbAge -gt $FrozenHeartbeatSeconds -and $s.journal_process_pid -and $reasons -notcontains 'JOURNAL_PROCESS_ABSENT' -and $reasons -notcontains 'MISSING_OR_INVALID_journal_process_pid') {
                             $outcome = Invoke-FrozenWorkerRecovery $s
                             $reasons += "FROZEN_WORKER_$outcome"
-                            if ($outcome -ne 'BUSY') { $nextStartUtc = [DateTime]::UtcNow; $restartIssuedUtc = [DateTime]::UtcNow; $restartsIssued++ }
+                            if ($outcome -in @('EXITED','KILLED')) { $nextStartUtc = [DateTime]::UtcNow; $restartIssuedUtc = [DateTime]::UtcNow; $restartsIssued++ }
                         }
                     } else {
                         $state = 'DEGRADED'; $reasons = @("SERVICE_$($s.service_state)")
+                    }
                     }
                 } else {
                     $owned = Get-OwnedWorker
