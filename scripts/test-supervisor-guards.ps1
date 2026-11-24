@@ -4,7 +4,7 @@
 $ErrorActionPreference = 'Stop'
 $source = Join-Path $PSScriptRoot 'phoenix-phase21.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($source, [ref]$null, [ref]$null)
-$wanted = 'Write-Log', 'Rotate', 'Get-AgeSeconds', 'Get-LedgerPath', 'Get-Reserve', 'Get-ReserveReasons',
+$wanted = 'Write-Log', 'Rotate', 'Get-AgeSeconds', 'Resolve-LedgerPath', 'Get-LedgerPath', 'Get-Reserve', 'Get-ReserveReasons', 'Request-DiskPause',
     'Get-OwnedWorker', 'Test-OwnedPid', 'Test-StatusOwnership', 'Get-HealthReasons', 'Assert-PaperOnly',
     'Get-CpuSeconds', 'Test-Idle', 'Invoke-FrozenWorkerRecovery'
 $found = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in $wanted }, $true))
@@ -18,8 +18,9 @@ $scripts = Join-Path $RuntimeHome 'fake-scripts'
 New-Item -ItemType Directory -Force -Path (Join-Path $RuntimeHome 'runtime'), (Join-Path $RuntimeHome 'logs'), $scripts | Out-Null
 $supLog = Join-Path $RuntimeHome 'logs\phoenix-supervisor.log'
 $pidFile = Join-Path $RuntimeHome 'runtime\worker.pid.json'
-$ProjectRoot = 'Z:\no-such-collector-root'; $Port = 1
-$FreshnessLimitSeconds = 120; $MaxQueueEvents = 12000; $LedgerCriticalFreeBytes = 1GB
+$ProjectRoot = Join-Path $RuntimeHome 'collector-checkout'; $Port = 1
+New-Item -ItemType Directory -Force -Path $ProjectRoot | Out-Null
+$FreshnessLimitSeconds = 120; $MaxQueueEvents = 12000; $LedgerPauseFreeBytes = 5GB
 $stopMarker = Join-Path $RuntimeHome 'stop-called.txt'
 Set-Content -LiteralPath (Join-Path $scripts 'stop.ps1') -Value "param([switch]`$KeepSupervisorPausedOnTimeout) Set-Content -LiteralPath '$stopMarker' -Value ('paused=' + `$KeepSupervisorPausedOnTimeout)"
 $savedLedgerEnv = $env:KALSHI15M_LEDGER_PATH
@@ -29,19 +30,24 @@ try {
     Check 'ledger default path' ((Get-LedgerPath) -eq (Join-Path $RuntimeHome 'data\paper_ledger.sqlite3'))
     Set-Content -LiteralPath (Join-Path $RuntimeHome 'runtime\ledger_path.txt') -Value "  X:\ledger\paper_ledger.sqlite3  "
     Check 'ledger pointer file wins over default' ((Get-LedgerPath) -eq 'X:\ledger\paper_ledger.sqlite3')
+    Set-Content -LiteralPath (Join-Path $RuntimeHome 'runtime\ledger_path.txt') -Value 'relative\paper_ledger.sqlite3'
+    Check 'relative pointer resolves against collector working directory' ((Get-LedgerPath) -eq [IO.Path]::GetFullPath((Join-Path $ProjectRoot 'relative\paper_ledger.sqlite3')))
     $env:KALSHI15M_LEDGER_PATH = 'D:\override\ledger.sqlite3'
     Check 'ledger env override wins over pointer' ((Get-LedgerPath) -eq 'D:\override\ledger.sqlite3')
+    $env:KALSHI15M_LEDGER_PATH = 'relative-env\paper_ledger.sqlite3'
+    Check 'relative env override resolves against collector working directory' ((Get-LedgerPath) -eq [IO.Path]::GetFullPath((Join-Path $ProjectRoot 'relative-env\paper_ledger.sqlite3'))) 
+    $env:KALSHI15M_LEDGER_PATH = 'D:\override\ledger.sqlite3'
     Remove-Item Env:KALSHI15M_LEDGER_PATH
 
     $rsv = Get-Reserve
     Check 'a missing ledger volume counts as no free space and pauses' ($rsv.ledger_free -eq 0 -and (Get-ReserveReasons $rsv) -match '^LEDGER_VOLUME_RESERVE')
     Set-Content -LiteralPath (Join-Path $RuntimeHome 'runtime\ledger_path.txt') -Value (Join-Path $RuntimeHome 'data\paper_ledger.sqlite3')
     $rsv = Get-Reserve
-    Check 'reserve reports a readable ledger volume separately' ($rsv.ledger_free -gt 0 -and $rsv.ledger_reserve -eq 1GB)
-    Check 'no reserve reason when both volumes have room' ((Get-ReserveReasons ([pscustomobject]@{ free = 50GB; reserve = 20GB; ledger_free = 5GB; ledger_reserve = 1GB })).Count -eq 0)
-    $short = Get-ReserveReasons ([pscustomobject]@{ free = 50GB; reserve = 20GB; ledger_free = 100MB; ledger_reserve = 1GB })
-    Check 'a short ledger volume pauses even when the runtime volume is fine' ($short.Count -eq 1 -and $short[0] -like 'LEDGER_VOLUME_RESERVE*')
-    $both = Get-ReserveReasons ([pscustomobject]@{ free = 1GB; reserve = 20GB; ledger_free = 100MB; ledger_reserve = 1GB })
+    Check 'reserve reports a readable ledger volume separately' ($rsv.ledger_free -gt 0 -and $rsv.ledger_reserve -eq 5GB)
+    Check 'no reserve reason when both volumes have room' ((Get-ReserveReasons ([pscustomobject]@{ free = 50GB; reserve = 20GB; ledger_free = 6GB; ledger_reserve = 5GB })).Count -eq 0)
+    $short = Get-ReserveReasons ([pscustomobject]@{ free = 50GB; reserve = 20GB; ledger_free = 4GB; ledger_reserve = 5GB })
+    Check 'a short ledger volume pauses before the collector critical stop' ($short.Count -eq 1 -and $short[0] -like 'LEDGER_VOLUME_RESERVE*')
+    $both = Get-ReserveReasons ([pscustomobject]@{ free = 1GB; reserve = 20GB; ledger_free = 4GB; ledger_reserve = 5GB })
     Check 'both short volumes are reported' ($both.Count -eq 2)
 
     Check 'unparseable timestamp is unknown, not an exception' ($null -eq (Get-AgeSeconds 'not-a-time'))
@@ -81,6 +87,21 @@ try {
     Remove-Item -LiteralPath $stopMarker
     Assert-PaperOnly ([pscustomobject]@{ mode = 'PAPER_ONLY'; exchange_write_calls = 0; orders_submitted_to_exchange = 0 })
     Check 'verified paper-only status passes without a stop' (-not (Test-Path -LiteralPath $stopMarker))
+
+    # Disk pause is one-shot: the stop script gets a 1-second wait, not its 10-minute default.
+    $pauseCalls = Join-Path $RuntimeHome 'pause-calls.txt'
+    $stopScript = Join-Path $scripts 'stop.ps1'
+    Set-Content -LiteralPath $stopScript -Value "param([int]`$GracefulWaitSeconds,[switch]`$KeepSupervisorPausedOnTimeout); Add-Content -LiteralPath '$pauseCalls' -Value `$GracefulWaitSeconds; Set-Content -LiteralPath '$manualStop' -Value 'manual_stop'; Set-Content -LiteralPath '$stopRequest' -Value 'stop'"
+    function Test-StatusOwnership { param($status) return $true }
+    $manualStop = Join-Path $RuntimeHome 'runtime\worker.manual-stop'
+    $stopRequest = Join-Path $RuntimeHome 'runtime\stop.request'
+    Remove-Item -LiteralPath $manualStop, $stopRequest -Force -ErrorAction SilentlyContinue
+    $firstPause = Request-DiskPause ([pscustomobject]@{ pid = 42 }) @('LEDGER_VOLUME_RESERVE')
+    $secondPause = Request-DiskPause ([pscustomobject]@{ pid = 42 }) @('LEDGER_VOLUME_RESERVE')
+    $calls = @(Get-Content -LiteralPath $pauseCalls)
+    Check 'disk pause requested once, then recognized as already requested' ($firstPause -eq 'REQUESTED' -and $secondPause -eq 'ALREADY_REQUESTED' -and $calls.Count -eq 1)
+    Check 'disk pause asks stop.ps1 to return promptly' ($calls.Count -eq 1 -and [int]$calls[0] -eq 1)
+    Remove-Item Function:\Test-StatusOwnership
 
     # PID reuse: the process found after the idle check is not the one recorded before the stop request.
     $FrozenStopWaitSeconds = 0; $FrozenIdleCheckSeconds = 1  # Start-Sleep is mocked; 0 would divide by zero
