@@ -62,6 +62,10 @@ $MaxQueueEvents = 12000
 $FrozenHeartbeatSeconds = 600
 $FrozenStopWaitSeconds = 120
 $FrozenIdleCheckSeconds = 10
+# Matches the collector's ledger CRITICAL guard (config.ledger_critical_free_bytes): the worker
+# stops itself below it, so starting or "recovering" a worker there only loops (seen 2026-11-23:
+# a supervised restart loop while the ledger volume was full).
+$LedgerCriticalFreeBytes = 1GB
 
 function Rotate([string]$path, [long]$limit) {
     if ((Test-Path -LiteralPath $path) -and (Get-Item -LiteralPath $path).Length -gt $limit) {
@@ -72,9 +76,33 @@ function Write-Log([string]$m) {
     Rotate $supLog 2MB
     Add-Content -LiteralPath $supLog -Value ("{0} {1}" -f [DateTime]::UtcNow.ToString('o'), $m)
 }
+function Get-LedgerPath {
+    # Same precedence as the collector's Settings.ledger_path.
+    if ($env:KALSHI15M_LEDGER_PATH) { return $env:KALSHI15M_LEDGER_PATH }
+    $pointer = Join-Path $RuntimeHome 'runtime\ledger_path.txt'
+    if (Test-Path -LiteralPath $pointer -PathType Leaf) {
+        $pointed = (Get-Content -LiteralPath $pointer -Raw).Trim()
+        if ($pointed) { return $pointed }
+    }
+    Join-Path $RuntimeHome 'data\paper_ledger.sqlite3'
+}
 function Get-Reserve {
     $d = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($RuntimeHome))
-    [pscustomobject]@{ free = $d.AvailableFreeSpace; reserve = [Math]::Max(20GB, [long](0.15 * $d.TotalSize)) }
+    # An unreadable or missing ledger volume counts as zero free space: pause, never start.
+    # (PowerShell turns a property-getter exception into $null, so check for it explicitly.)
+    $ledgerFree = $null
+    try { $ledgerFree = [IO.DriveInfo]::new([IO.Path]::GetPathRoot([IO.Path]::GetFullPath((Get-LedgerPath)))).AvailableFreeSpace } catch { }
+    if ($null -eq $ledgerFree) { $ledgerFree = 0L }
+    [pscustomobject]@{
+        free = $d.AvailableFreeSpace; reserve = [Math]::Max(20GB, [long](0.15 * $d.TotalSize))
+        ledger_free = $ledgerFree; ledger_reserve = $LedgerCriticalFreeBytes
+    }
+}
+function Get-ReserveReasons($rsv) {
+    $r = @()
+    if ($rsv.free -lt $rsv.reserve) { $r += "DISK_RESERVE free=$($rsv.free) reserve=$($rsv.reserve)" }
+    if ($rsv.ledger_free -lt $rsv.ledger_reserve) { $r += "LEDGER_VOLUME_RESERVE free=$($rsv.ledger_free) reserve=$($rsv.ledger_reserve)" }
+    ,$r
 }
 function Get-Memory {
     $os = Get-CimInstance Win32_OperatingSystem
@@ -220,6 +248,7 @@ function Write-Heartbeat([string]$State, $Reasons, $s, $Extra) {
         crossmarket_paper_realized_net_pnl_dollars = $s.crossmarket_paper_realized_net_pnl_dollars
         exchange_write_calls = $s.exchange_write_calls; orders_submitted_to_exchange = $s.orders_submitted_to_exchange
         disk_free_bytes = $rsv.free; disk_reserve_bytes = $rsv.reserve
+        ledger_volume_free_bytes = $rsv.ledger_free; ledger_volume_reserve_bytes = $rsv.ledger_reserve
         ram_available_mb = $mem.avail_mb; commit_free_mb = $mem.commit_free_mb
     }
     if ($Extra) { foreach ($k in $Extra.Keys) { $o[$k] = $Extra[$k] } }
@@ -254,12 +283,18 @@ switch ($Mode) {
             while ($true) {
               try {
                 $mem = Get-Memory; $rsv = Get-Reserve; $s = Get-Status; $reasons = @(); $state = 'BLOCKED'
-                if ($rsv.free -lt $rsv.reserve) {
-                    if (Test-StatusOwnership $s) { & (Join-Path $scripts 'stop.ps1') -KeepSupervisorPausedOnTimeout | Out-Null; Write-Log "STOPPED_DISK_RESERVE free=$($rsv.free) reserve=$($rsv.reserve)" }
-                    $reasons = @("DISK_RESERVE free=$($rsv.free) reserve=$($rsv.reserve)")
+                $reserveReasons = Get-ReserveReasons $rsv
+                if ($reserveReasons.Count -gt 0) {
+                    # Pause, never loop: no start and no frozen-worker kill/restart while a volume is short.
+                    if (Test-StatusOwnership $s) { & (Join-Path $scripts 'stop.ps1') -KeepSupervisorPausedOnTimeout | Out-Null; Write-Log ("STOPPED_" + ($reserveReasons -join ';')) }
+                    $reasons = $reserveReasons
                 } elseif ($s) {
                     if (-not (Test-StatusOwnership $s)) {
                         $reasons = @("PORT_${Port}_SERVED_BY_UNVERIFIED_PID_$($s.pid)")
+                        # Never stop an unowned listener, but never let an unsafe one pass silently either.
+                        if ($s.mode -ne 'PAPER_ONLY' -or [string]$s.exchange_write_calls -ne '0' -or [string]$s.orders_submitted_to_exchange -ne '0') {
+                            $reasons += 'SAFETY_UNOWNED_LISTENER_NOT_VERIFIED_PAPER_ONLY'
+                        }
                     } else {
                     Assert-PaperOnly $s
                     if ($s.service_state -eq 'RECOVERING') {
