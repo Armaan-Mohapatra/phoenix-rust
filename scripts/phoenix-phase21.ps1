@@ -166,22 +166,24 @@ function Get-HealthReasons($s, $mem) {
     if ($s.rest_state -ne 'READY') { $r.Add("REST_$($s.rest_state)") }
     if ($s.websocket_state -ne 'READY') { $r.Add("WEBSOCKET_$($s.websocket_state)") }
     if ($s.orderbook_sequence_state -ne 'VERIFIED_CONTIGUOUS') { $r.Add("BOOK_SEQUENCE_$($s.orderbook_sequence_state)") }
+    $counters = @{}
     foreach ($field in @('queue_depth','archive_manifest_failures','archive_checkpoint_write_failures','parquet_dropped_rows','journal_process_pid')) {
         $p = $s.PSObject.Properties[$field]
         $number = 0L
         if (-not $p -or $null -eq $p.Value -or -not [long]::TryParse([string]$p.Value, [ref]$number) -or $number -lt 0) { $r.Add("MISSING_OR_INVALID_$field") }
+        else { $counters[$field] = $number }
     }
-    if ([long]$s.parquet_dropped_rows -gt 0) { $r.Add('PARQUET_ROWS_DROPPED') }
-    if (-not $s.journal_process_pid -or -not (Get-Process -Id ([int]$s.journal_process_pid) -ErrorAction SilentlyContinue)) { $r.Add('JOURNAL_PROCESS_ABSENT') }
-    if ([int]$s.queue_depth -ge [int](0.9 * $MaxQueueEvents)) { $r.Add("WRITER_BACKLOG_$($s.queue_depth)") }
+    if ($counters.parquet_dropped_rows -gt 0) { $r.Add('PARQUET_ROWS_DROPPED') }
+    if (-not $counters.journal_process_pid -or $counters.journal_process_pid -gt [int]::MaxValue -or -not (Get-Process -Id ([int]$counters.journal_process_pid) -ErrorAction SilentlyContinue)) { $r.Add('JOURNAL_PROCESS_ABSENT') }
+    if ($counters.queue_depth -ge [int](0.9 * $MaxQueueEvents)) { $r.Add("WRITER_BACKLOG_$($s.queue_depth)") }
     if ($s.storage_write_state -ne 'HEALTHY') { $r.Add("STORAGE_$($s.storage_write_state)") }
     if ($s.parquet_archive_recovery_state -match '^(FAILED_|PARTIAL_RECOVERY_|SKIPPED_LOW_DISK$|SKIPPED_RAW_BUDGET$)') {
         $r.Add("ARCHIVE_RECOVERY_$($s.parquet_archive_recovery_state)")
     }
     # Unknown or missing evidence is not success: only positive archive verification passes.
     if ($s.archive_integrity_state -notmatch '^VERIFIED_COMPLETE') { $r.Add("ARCHIVE_INTEGRITY_$($s.archive_integrity_state)") }
-    if ([int]$s.archive_manifest_failures -gt 0) { $r.Add("ARCHIVE_MANIFEST_FAILURES_$($s.archive_manifest_failures)") }
-    if ([int]$s.archive_checkpoint_write_failures -gt 0) { $r.Add("ARCHIVE_CHECKPOINT_WRITE_FAILURES_$($s.archive_checkpoint_write_failures)") }
+    if ($counters.archive_manifest_failures -gt 0) { $r.Add("ARCHIVE_MANIFEST_FAILURES_$($s.archive_manifest_failures)") }
+    if ($counters.archive_checkpoint_write_failures -gt 0) { $r.Add("ARCHIVE_CHECKPOINT_WRITE_FAILURES_$($s.archive_checkpoint_write_failures)") }
     if ($s.disk_state -and $s.disk_state -ne 'OK') { $r.Add("DISK_$($s.disk_state)") }
     if ($s.ledger_volume_state -and $s.ledger_volume_state -ne 'OK') { $r.Add("LEDGER_VOLUME_$($s.ledger_volume_state)") }
     if ($s.journal_optional_capture_state -eq 'STOPPED_JOURNAL_BUDGET') { $r.Add('JOURNAL_BUDGET_REACHED_DELTAS_STOPPED') }
@@ -278,7 +280,7 @@ switch ($Mode) {
                         $reasons = Get-HealthReasons $s $mem
                         $state = 'HEALTHY'; if ($reasons.Count -gt 0) { $state = 'DEGRADED' }
                         $hbAge = Get-AgeSeconds $s.heartbeat_utc
-                        if ($null -ne $hbAge -and $hbAge -gt $FrozenHeartbeatSeconds) {
+                        if ($null -ne $hbAge -and $hbAge -gt $FrozenHeartbeatSeconds -and $s.journal_process_pid -and $reasons -notcontains 'JOURNAL_PROCESS_ABSENT' -and $reasons -notcontains 'MISSING_OR_INVALID_journal_process_pid') {
                             $outcome = Invoke-FrozenWorkerRecovery $s
                             $reasons += "FROZEN_WORKER_$outcome"
                             if ($outcome -in @('EXITED','KILLED')) { $nextStartUtc = [DateTime]::UtcNow; $restartIssuedUtc = [DateTime]::UtcNow; $restartsIssued++ }
